@@ -50,4 +50,9 @@ def test_static_profile_node_returns_top3_labels_and_summary():
     assert len(next_state.static_profile.top3_labels) == 3
     assert next_state.static_profile.top3_labels[0].label == "物业管理"
     assert next_state.static_profile.summary == "主体偏向物业管理。"
+    prompt, payload = client.calls[0]
+    assert "[SYSTEM]" in prompt
+    assert "[USER]" in prompt
+    assert "某物业公司" in prompt
+    assert "taxonomy" in payload
 

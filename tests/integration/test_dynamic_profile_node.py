@@ -46,8 +46,10 @@ def test_dynamic_profile_node_uses_bounded_summary_fields_only():
 
     assert next_state.dynamic_profile is not None
     assert next_state.dynamic_profile.core_jobs == ["保安", "保洁"]
-    _, payload = client.calls[0]
+    prompt, payload = client.calls[0]
+    assert "[SYSTEM]" in prompt
+    assert "[USER]" in prompt
+    assert "保安" in prompt
     assert "jobs_all_90d" not in payload
     assert "top_job_names" in payload
     assert "jobs_recent_20" in payload
-

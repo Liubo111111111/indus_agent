@@ -20,7 +20,7 @@ class StaticProfileService:
         self.client = client
         self.model_version = model_version
         self.prompt_version = prompt_version
-        self.prompt_builder = prompt_builder or StaticProfilePromptBuilder()
+        self.prompt_builder = prompt_builder or StaticProfilePromptBuilder(prompt_version=prompt_version)
         self.parser = parser or StaticProfileParser()
 
     def run(self, state: GraphState) -> GraphState:
@@ -34,4 +34,3 @@ class StaticProfileService:
                 "model_version_static": self.model_version,
             }
         )
-

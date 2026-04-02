@@ -18,7 +18,7 @@ class DynamicProfileService:
         self.client = client
         self.model_version = model_version
         self.prompt_version = prompt_version
-        self.prompt_builder = prompt_builder or DynamicProfilePromptBuilder()
+        self.prompt_builder = prompt_builder or DynamicProfilePromptBuilder(prompt_version=prompt_version)
         self.parser = parser or DynamicProfileParser()
 
     def run(self, state: GraphState) -> GraphState:
@@ -32,4 +32,3 @@ class DynamicProfileService:
                 "model_version_dynamic": self.model_version,
             }
         )
-

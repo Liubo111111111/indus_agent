@@ -7,11 +7,13 @@ class SequenceLLMClient:
 
     def complete(self, prompt: str, payload: dict) -> str:
         self.calls += 1
-        if "静态候选行业" in prompt:
-            return "{\"top3_labels\":[{\"label\":\"物业管理\",\"reason\":\"经营范围命中\"},{\"label\":\"安保服务\",\"reason\":\"岗位相关\"},{\"label\":\"其他\",\"reason\":\"保守候选\"}],\"summary\":\"主体偏向物业管理。\"}"
-        if "动态招聘画像" in prompt:
+        if "[TASK: final_decision]" in prompt:
+            return "{\"final_label\":\"物业管理\",\"confidence_level\":\"high\",\"low_confidence\":false,\"decision_reason\":\"主体与招聘行为都指向物业管理。\",\"supporting_evidence\":[\"经营范围命中物业管理\",\"岗位集中在保安保洁\"],\"conflict_note\":null}"
+        if "[TASK: dynamic_profile]" in prompt:
             return "{\"core_jobs\":[\"保安\",\"保洁\"],\"scene\":\"小区和园区\",\"continuity\":\"近3个月持续招聘\",\"summary\":\"近3个月招聘持续且集中，主要围绕保安、保洁岗位，场景偏小区和园区。\"}"
-        return "{\"final_label\":\"物业管理\",\"confidence_level\":\"high\",\"low_confidence\":false,\"decision_reason\":\"主体与招聘行为都指向物业管理。\",\"supporting_evidence\":[\"经营范围命中物业管理\",\"岗位集中在保安保洁\"],\"conflict_note\":null}"
+        if "[TASK: static_profile]" in prompt:
+            return "{\"top3_labels\":[{\"label\":\"物业管理\",\"reason\":\"经营范围命中\"},{\"label\":\"安保服务\",\"reason\":\"岗位相关\"},{\"label\":\"其他\",\"reason\":\"保守候选\"}],\"summary\":\"主体偏向物业管理。\"}"
+        raise ValueError("unrecognized_prompt_task")
 
 
 def test_rerun_same_partition_reuses_cache_and_does_not_duplicate_publish():

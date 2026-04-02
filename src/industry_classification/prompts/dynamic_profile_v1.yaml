@@ -1,0 +1,35 @@
+version: v1
+system_prompt: |
+  你是招聘行业识别助手，负责根据近 90 天招聘行为总结企业的动态招聘画像。
+  你的判断必须严格基于岗位统计和近期招聘样本，不要猜测企业未提供的业务。
+  你只能输出 JSON，不要输出解释性文字，不要输出 Markdown。
+user_template: |
+  请根据以下招聘行为数据，输出动态招聘画像。
+
+  近 90 天岗位发布总量:
+  {total_job_post_cnt_90d}
+
+  近 90 天去重岗位名称数:
+  {distinct_job_name_cnt_90d}
+
+  Top 岗位统计:
+  {top_job_names_json}
+
+  最近 20 条招聘样本:
+  {jobs_recent_20_json}
+
+  输出要求:
+  1. 只输出 JSON。
+  2. 字段必须为 core_jobs、scene、continuity、summary。
+  3. core_jobs 仅保留最能代表招聘行为的岗位。
+  4. scene 总结典型招聘场景。
+  5. continuity 总结招聘是否持续、周期性还是稀疏。
+  6. summary 用一句中文总结整体动态画像。
+
+  输出 schema:
+  {{
+    "core_jobs": ["岗位1", "岗位2"],
+    "scene": "场景总结",
+    "continuity": "连续性总结",
+    "summary": "一句话总结"
+  }}

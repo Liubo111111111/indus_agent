@@ -18,7 +18,7 @@ class FinalDecisionService:
         self.client = client
         self.model_version = model_version
         self.prompt_version = prompt_version
-        self.prompt_builder = prompt_builder or FinalDecisionPromptBuilder()
+        self.prompt_builder = prompt_builder or FinalDecisionPromptBuilder(prompt_version=prompt_version)
         self.parser = parser or FinalDecisionParser()
 
     def run(self, state: GraphState) -> GraphState:

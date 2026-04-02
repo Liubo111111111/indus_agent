@@ -12,6 +12,12 @@
 - `prompt_version_dynamic`: `v1`
 - `prompt_version_final`: `v1`
 
+## Prompt Assets
+- `src/industry_classification/prompts/static_profile_v1.yaml`
+- `src/industry_classification/prompts/dynamic_profile_v1.yaml`
+- `src/industry_classification/prompts/final_decision_v1.yaml`
+- Prompt builders load these files by `prompt_version` and render a `[TASK] + [SYSTEM] + [USER]` prompt envelope before calling the client.
+
 ## Commands
 - Run all tests:
   - `uv run python -m pytest tests/unit tests/integration -v`

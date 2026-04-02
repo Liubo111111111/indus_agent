@@ -11,11 +11,13 @@ class SequenceLLMClient:
 
     def complete(self, prompt: str, payload: dict) -> str:
         self.calls.append((prompt, payload))
-        if "静态候选行业" in prompt:
-            return self.responses["static"]
-        if "动态招聘画像" in prompt:
+        if "[TASK: final_decision]" in prompt:
+            return self.responses["final"]
+        if "[TASK: dynamic_profile]" in prompt:
             return self.responses["dynamic"]
-        return self.responses["final"]
+        if "[TASK: static_profile]" in prompt:
+            return self.responses["static"]
+        raise ValueError("unrecognized_prompt_task")
 
 
 def _fixture_path(name: str) -> Path:
@@ -78,4 +80,3 @@ def test_seed_replay_suite_matches_expected_routes_and_labels():
         assert result.route == expected[case["name"]]["route"]
         assert result.decision_record is not None
         assert result.decision_record.final_label == expected[case["name"]]["final_label"]
-

@@ -57,11 +57,13 @@ class SequenceLLMClient:
     def complete(self, prompt: str, payload: dict) -> str:
         del payload
         self.calls += 1
-        if "静态候选行业" in prompt:
-            return self.responses["static"]
-        if "动态招聘画像" in prompt:
+        if "[TASK: final_decision]" in prompt:
+            return self.responses["final"]
+        if "[TASK: dynamic_profile]" in prompt:
             return self.responses["dynamic"]
-        return self.responses["final"]
+        if "[TASK: static_profile]" in prompt:
+            return self.responses["static"]
+        raise ValueError("unrecognized_prompt_task")
 
 
 class RateLimitedLLMClient:

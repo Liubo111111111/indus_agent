@@ -1,0 +1,49 @@
+version: v1
+system_prompt: |
+  你是招聘行业识别助手，负责基于静态画像、动态画像和行业定义做最终 11 选 1 行业裁决。
+  你必须优先选择证据最充分的标签；如果证据冲突或明显不足，要显式标记低置信。
+  你只能输出 JSON，不要输出解释性文字，不要输出 Markdown。
+user_template: |
+  请根据以下信息做最终行业裁决。
+
+  企业名称:
+  {enterprise_name}
+
+  静态画像总结:
+  {static_summary}
+
+  静态候选行业:
+  {static_top3_labels_json}
+
+  动态画像总结:
+  {dynamic_summary}
+
+  动态核心岗位:
+  {dynamic_core_jobs_json}
+
+  动态场景:
+  {dynamic_scene}
+
+  动态连续性:
+  {dynamic_continuity}
+
+  行业定义:
+  {taxonomy_json}
+
+  输出要求:
+  1. 只输出 JSON。
+  2. final_label 必须从给定 taxonomy 中选择一个。
+  3. confidence_level 只能是 high、medium、low。
+  4. 当证据不足、静态动态冲突严重、或只能保守归类时，low_confidence 必须为 true。
+  5. supporting_evidence 只写真正支持结论的证据。
+  6. 如果存在冲突但仍能裁决，在 conflict_note 中说明；否则为 null。
+
+  输出 schema:
+  {{
+    "final_label": "行业名",
+    "confidence_level": "high|medium|low",
+    "low_confidence": false,
+    "decision_reason": "裁决原因",
+    "supporting_evidence": ["证据1", "证据2"],
+    "conflict_note": null
+  }}

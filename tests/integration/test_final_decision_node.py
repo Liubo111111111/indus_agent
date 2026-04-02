@@ -65,3 +65,8 @@ def test_final_decision_node_outputs_label_confidence_reason_and_route():
     assert next_state.decision_record.final_label == "物业管理"
     assert next_state.decision_record.confidence_level == "high"
     assert next_state.route == "formal"
+    prompt, payload = client.calls[0]
+    assert "[SYSTEM]" in prompt
+    assert "[USER]" in prompt
+    assert "主体偏向物业管理" in prompt
+    assert "taxonomy" in payload
