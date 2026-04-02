@@ -17,6 +17,8 @@
   - `uv run python -m pytest tests/unit tests/integration -v`
 - Run dry-run batch:
   - `uv run python -m industry_classification.main --pt 20260402 --mode dry-run`
+- Run file-backed local batch:
+  - `uv run python -m industry_classification.main --pt 20260402 --mode file-batch --input-path .\\input.jsonl --responses-path .\\responses.json --output-dir .\\output`
 
 ## Expected Dry-Run Signals
 - Formal output count is greater than `0`
@@ -24,9 +26,16 @@
 - Cache entries are present
 - Re-run path does not increase formal publish count for the same entity/version tuple
 
+## Expected File-Batch Signals
+- `formal_output.jsonl` contains only safe-branch publishes
+- `fallback_output.jsonl` contains low-confidence/error branches
+- `run_summary.json` records processed count, route counts, cache entries, and publish keys
+- Re-running with the same output directory keeps output record counts stable
+
 ## Where To Inspect
-- Formal path: in-memory formal writer contract today; replace with formal output table writer next
-- Fallback path: in-memory fallback writer contract today; replace with review/fallback output table writer next
+- Formal path: `<output-dir>/formal_output.jsonl`
+- Fallback path: `<output-dir>/fallback_output.jsonl`
+- Batch summary: `<output-dir>/run_summary.json`
 - Replay fixtures:
   - `tests/integration/fixtures/replay_cases.json`
   - `tests/integration/fixtures/replay_expected.json`
@@ -38,7 +47,8 @@
 4. Check taxonomy/prompt/model/version drift before rerun.
 
 ## Next Hardening Steps
-- Replace in-memory writers with real table writers.
+- Replace JSONL/file-backed writers with real warehouse table writers.
+- Replace mock response adapter with real provider client wiring.
 - Add formal taxonomy contract from `TODOS.md`.
 - Add signal-quality gate from `TODOS.md`.
 - Add manual override and rollback safety layer from `TODOS.md`.
