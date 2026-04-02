@@ -1,0 +1,44 @@
+# Industry Classification V1 Runbook
+
+## Environment
+- Use local `uv` environment only.
+- Install/sync: `uv sync --extra dev`
+
+## Key Versions
+- `feature_schema_version`: `v1`
+- `taxonomy_version`: `v1`
+- `graph_version`: `v1`
+- `prompt_version_static`: `v1`
+- `prompt_version_dynamic`: `v1`
+- `prompt_version_final`: `v1`
+
+## Commands
+- Run all tests:
+  - `uv run python -m pytest tests/unit tests/integration -v`
+- Run dry-run batch:
+  - `uv run python -m industry_classification.main --pt 20260402 --mode dry-run`
+
+## Expected Dry-Run Signals
+- Formal output count is greater than `0`
+- Fallback output count is greater than or equal to `0`
+- Cache entries are present
+- Re-run path does not increase formal publish count for the same entity/version tuple
+
+## Where To Inspect
+- Formal path: in-memory formal writer contract today; replace with formal output table writer next
+- Fallback path: in-memory fallback writer contract today; replace with review/fallback output table writer next
+- Replay fixtures:
+  - `tests/integration/fixtures/replay_cases.json`
+  - `tests/integration/fixtures/replay_expected.json`
+
+## Rollback Procedure
+1. Stop consuming new formal output records downstream.
+2. Revert to previous stable pricing input source.
+3. Inspect fallback output and audit metadata for the failing run.
+4. Check taxonomy/prompt/model/version drift before rerun.
+
+## Next Hardening Steps
+- Replace in-memory writers with real table writers.
+- Add formal taxonomy contract from `TODOS.md`.
+- Add signal-quality gate from `TODOS.md`.
+- Add manual override and rollback safety layer from `TODOS.md`.

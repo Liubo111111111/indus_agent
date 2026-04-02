@@ -1,0 +1,58 @@
+version: v1
+labels:
+  - id: car_rental
+    display_name: 汽车租赁
+    short_description: 汽车租赁、网约车、货运司机、运力、出行相关企业
+    prompt_text: 汽车租赁、网约车、货运司机、运力、出行相关企业。
+    enabled: true
+  - id: entertainment_services
+    display_name: 娱乐服务
+    short_description: 酒吧、KTV、SPA、足浴、按摩、洗浴、夜场相关企业
+    prompt_text: 酒吧、KTV、SPA、足浴、按摩、洗浴、夜场相关企业。
+    enabled: true
+  - id: cultural_media
+    display_name: 文化传媒
+    short_description: 主播、直播、传媒、演艺、广告传播、短视频相关企业
+    prompt_text: 主播、直播、传媒、演艺、广告传播、短视频相关企业。
+    enabled: true
+  - id: domestic_services
+    display_name: 家政服务
+    short_description: 保姆、月嫂、育儿嫂、钟点工、家庭保洁、收纳相关企业
+    prompt_text: 保姆、月嫂、育儿嫂、钟点工、家庭保洁、收纳相关企业。
+    enabled: true
+  - id: property_management
+    display_name: 物业管理
+    short_description: 小区、写字楼、园区、商业综合体物业运营及配套秩序保洁维修企业
+    prompt_text: 小区、写字楼、园区、商业综合体物业运营，以及与之配套的秩序、保洁、维修相关企业。
+    enabled: true
+  - id: order_taking_platform
+    display_name: 接单类平台
+    short_description: 平台撮合、派单、接单及围绕上门维修安装保洁家政网络组织的企业
+    prompt_text: 平台撮合、派单、接单，以及围绕上门维修、安装、保洁、家政网络组织的接单型平台企业。
+    enabled: true
+  - id: security_services
+    display_name: 安保服务
+    short_description: 保安、护卫、押运、安全保障相关企业
+    prompt_text: 保安、护卫、押运、安全保障相关企业。
+    enabled: true
+  - id: construction
+    display_name: 建筑类
+    short_description: 建筑施工、装修装饰、工程安装、建材配套相关企业
+    prompt_text: 建筑施工、装修装饰、工程安装、建材配套相关企业。
+    enabled: true
+  - id: delivery_riders
+    display_name: 骑手配送
+    short_description: 外卖、同城、站点配送、跑腿、骑手运力相关企业
+    prompt_text: 外卖、同城、站点配送、跑腿、骑手运力相关企业。
+    enabled: true
+  - id: catering_services
+    display_name: 餐饮服务
+    short_description: 餐馆、饭店、前厅、后厨、厨师、服务员相关企业
+    prompt_text: 餐馆、饭店、前厅、后厨、厨师、服务员相关企业。
+    enabled: true
+  - id: other
+    display_name: 其他
+    short_description: 证据不足或不明确归类到前十类的企业
+    prompt_text: 若证据不足或无法明确归类到前十类时，保守归为其他。
+    enabled: true
+

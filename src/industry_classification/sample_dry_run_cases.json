@@ -1,0 +1,53 @@
+[
+  {
+    "name": "property_formal_case",
+    "row": {
+      "user_id": 1,
+      "social_credit_code": "abc",
+      "enterprise_name": "某物业公司",
+      "business_scope": "物业管理、保洁服务",
+      "total_job_post_cnt_90d": 12,
+      "distinct_job_name_cnt_90d": 4,
+      "top_job_names": [
+        {"job_name": "保安", "cnt": 5, "ratio": 0.42},
+        {"job_name": "保洁", "cnt": 4, "ratio": 0.33}
+      ],
+      "jobs_recent_20": [
+        {"job_name": "保安", "desc": "小区秩序维护", "add_time": "2026-04-01 10:00:00"}
+      ],
+      "jobs_all_90d": [
+        {"job_name": "保安", "desc": "小区秩序维护", "add_time": "2026-04-01 10:00:00"}
+      ]
+    },
+    "responses": {
+      "static": "{\"top3_labels\":[{\"label\":\"物业管理\",\"reason\":\"经营范围命中\"},{\"label\":\"安保服务\",\"reason\":\"岗位相关\"},{\"label\":\"其他\",\"reason\":\"保守候选\"}],\"summary\":\"主体偏向物业管理。\"}",
+      "dynamic": "{\"core_jobs\":[\"保安\",\"保洁\"],\"scene\":\"小区和园区\",\"continuity\":\"近3个月持续招聘\",\"summary\":\"近3个月招聘持续且集中，主要围绕保安、保洁岗位，场景偏小区和园区。\"}",
+      "final": "{\"final_label\":\"物业管理\",\"confidence_level\":\"high\",\"low_confidence\":false,\"decision_reason\":\"主体与招聘行为都指向物业管理。\",\"supporting_evidence\":[\"经营范围命中物业管理\",\"岗位集中在保安保洁\"],\"conflict_note\":null}"
+    }
+  },
+  {
+    "name": "other_fallback_case",
+    "row": {
+      "user_id": 2,
+      "social_credit_code": "xyz",
+      "enterprise_name": "某综合服务公司",
+      "business_scope": "综合服务",
+      "total_job_post_cnt_90d": 1,
+      "distinct_job_name_cnt_90d": 1,
+      "top_job_names": [
+        {"job_name": "文员", "cnt": 1, "ratio": 1.0}
+      ],
+      "jobs_recent_20": [
+        {"job_name": "文员", "desc": "日常行政", "add_time": "2026-04-01 09:00:00"}
+      ],
+      "jobs_all_90d": [
+        {"job_name": "文员", "desc": "日常行政", "add_time": "2026-04-01 09:00:00"}
+      ]
+    },
+    "responses": {
+      "static": "{\"top3_labels\":[{\"label\":\"其他\",\"reason\":\"主体信息泛化\"},{\"label\":\"家政服务\",\"reason\":\"弱候选\"},{\"label\":\"接单类平台\",\"reason\":\"弱候选\"}],\"summary\":\"主体倾向不明确。\"}",
+      "dynamic": "{\"core_jobs\":[\"文员\"],\"scene\":\"办公场景\",\"continuity\":\"招聘样本稀疏\",\"summary\":\"近3个月招聘信号较弱，主要为通用岗位。\"}",
+      "final": "{\"final_label\":\"其他\",\"confidence_level\":\"low\",\"low_confidence\":true,\"decision_reason\":\"证据不足，保守归为其他。\",\"supporting_evidence\":[\"岗位过于泛化\"],\"conflict_note\":null}"
+    }
+  }
+]

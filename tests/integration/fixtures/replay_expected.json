@@ -1,0 +1,10 @@
+{
+  "property_formal_case": {
+    "route": "formal",
+    "final_label": "物业管理"
+  },
+  "other_fallback_case": {
+    "route": "fallback",
+    "final_label": "其他"
+  }
+}
