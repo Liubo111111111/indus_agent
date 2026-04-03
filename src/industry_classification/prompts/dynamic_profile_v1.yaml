@@ -12,6 +12,12 @@ user_template: |
   近 90 天去重岗位名称数:
   {distinct_job_name_cnt_90d}
 
+  最新一次发布时间:
+  {latest_publish_time}
+
+  最新一次发布工种:
+  {latest_publish_job_names_json}
+
   Top 岗位统计:
   {top_job_names_json}
 
@@ -23,7 +29,7 @@ user_template: |
   2. 字段必须为 core_jobs、scene、continuity、summary。
   3. core_jobs 仅保留最能代表招聘行为的岗位。
   4. scene 总结典型招聘场景。
-  5. continuity 总结招聘是否持续、周期性还是稀疏。
+  5. continuity 总结招聘是否持续、周期性还是稀疏，结合最新发布时间判断近期活跃度。
   6. summary 用一句中文总结整体动态画像。
 
   输出 schema:

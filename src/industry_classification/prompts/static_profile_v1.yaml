@@ -13,6 +13,9 @@ user_template: |
   经营范围:
   {business_scope}
 
+  企业认证时间:
+  {authentication_time}
+
   行业定义:
   {taxonomy_json}
 

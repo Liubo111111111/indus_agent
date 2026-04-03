@@ -19,7 +19,10 @@ CREATE TABLE IF NOT EXISTS yuapo_dev.enterprise_industry_wide_table
     total_job_post_cnt_90d BIGINT COMMENT '近90天招聘总数',
     distinct_job_name_cnt_90d BIGINT COMMENT '近90天去重岗位数',
     top_job_names_json STRING COMMENT '近90天岗位Top10统计JSON',
-    jobs_recent_20_json STRING COMMENT '近30天最新20条招聘样本JSON'
+    jobs_recent_20_json STRING COMMENT '近30天最新20条招聘样本JSON',
+    latest_publish_time STRING COMMENT '最新一次发布时间',
+    latest_publish_job_names_json STRING COMMENT '最新一次发布的工种JSON',
+    authentication_time STRING COMMENT '企业认证时间'
 )
 PARTITIONED BY (pt STRING COMMENT '业务日期分区,格式yyyymmdd')
 LIFECYCLE 180;
@@ -174,6 +177,54 @@ recent_jobs_top20 AS (
     FROM recent_jobs_ranked
     WHERE rn <= 20
     GROUP BY social_credit_code
+),
+-- 最新一次发布：取每个企业最近一条发布记录的时间和工种
+latest_publish_ranked AS (
+    SELECT
+        social_credit_code,
+        title,
+        add_time,
+        ROW_NUMBER() OVER (
+            PARTITION BY social_credit_code
+            ORDER BY add_time DESC, title ASC
+        ) AS rn
+    FROM job_publish_exploded
+),
+latest_publish AS (
+    SELECT
+        lp.social_credit_code,
+        SUBSTR(CAST(lp.add_time AS STRING), 1, 10) AS latest_publish_time,
+        TO_JSON(
+            COLLECT_LIST(lp2.title)
+        ) AS latest_publish_job_names_json
+    FROM latest_publish_ranked lp
+    JOIN (
+        -- 取与最新发布时间相同的所有工种
+        SELECT
+            a.social_credit_code,
+            a.title
+        FROM job_publish_exploded a
+        JOIN (
+            SELECT social_credit_code, add_time
+            FROM latest_publish_ranked
+            WHERE rn = 1
+        ) b
+            ON a.social_credit_code = b.social_credit_code
+           AND a.add_time = b.add_time
+        GROUP BY a.social_credit_code, a.title
+    ) lp2
+        ON lp.social_credit_code = lp2.social_credit_code
+    WHERE lp.rn = 1
+    GROUP BY lp.social_credit_code, lp.add_time
+),
+enterprise_auth AS (
+    SELECT
+        social_credit_code,
+        SUBSTR(CAST(authentication_time AS STRING), 1, 10) AS authentication_time
+    FROM yuapo.enterprise_user_account
+    WHERE pt = '${bdp.system.bizdate}'
+      AND authentication_time IS NOT NULL
+    GROUP BY social_credit_code, SUBSTR(CAST(authentication_time AS STRING), 1, 10)
 )
 INSERT OVERWRITE TABLE yuapo_dev.enterprise_industry_wide_table
 PARTITION (pt = '${bdp.system.bizdate}')
@@ -185,7 +236,10 @@ SELECT
     COALESCE(s.total_job_post_cnt_90d, 0) AS total_job_post_cnt_90d,
     COALESCE(s.distinct_job_name_cnt_90d, 0) AS distinct_job_name_cnt_90d,
     COALESCE(t.top_job_names_json, '[]') AS top_job_names_json,
-    COALESCE(r.jobs_recent_20_json, '[]') AS jobs_recent_20_json
+    COALESCE(r.jobs_recent_20_json, '[]') AS jobs_recent_20_json,
+    lp.latest_publish_time,
+    COALESCE(lp.latest_publish_job_names_json, '[]') AS latest_publish_job_names_json,
+    ea.authentication_time
 FROM enterprise_master m
 INNER JOIN job_summary_agg s
     ON m.social_credit_code = s.social_credit_code
@@ -193,4 +247,8 @@ LEFT JOIN job_name_top10 t
     ON m.social_credit_code = t.social_credit_code
 LEFT JOIN recent_jobs_top20 r
     ON m.social_credit_code = r.social_credit_code
+LEFT JOIN latest_publish lp
+    ON m.social_credit_code = lp.social_credit_code
+LEFT JOIN enterprise_auth ea
+    ON m.social_credit_code = ea.social_credit_code
 ;

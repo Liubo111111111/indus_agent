@@ -1,16 +1,27 @@
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from pathlib import Path
 
 import yaml
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 from pydantic import BaseModel, ConfigDict, Field
 
-# 加载 .env 文件（项目根目录）
+# 读取 .env 文件（项目根目录），不接受进程环境变量覆盖
 _env_path = Path(__file__).resolve().parents[2] / ".env"
-load_dotenv(_env_path, override=False)
+
+
+@lru_cache(maxsize=1)
+def _load_env_values() -> dict[str, str]:
+    return {
+        key: value
+        for key, value in dotenv_values(_env_path).items()
+        if value is not None
+    }
+
+
+def _env_get(name: str, default: str = "") -> str:
+    return _load_env_values().get(name, default)
 
 
 # ---------------------------------------------------------------------------
@@ -31,23 +42,23 @@ class LLMSettings(BaseModel):
 @lru_cache(maxsize=1)
 def load_llm_settings() -> LLMSettings:
     api_key = (
-        os.getenv("DASHSCOPE_API_KEY")
-        or os.getenv("OPENAI_API_KEY")
-        or os.getenv("LLM_API_KEY")
+        _env_get("DASHSCOPE_API_KEY")
+        or _env_get("OPENAI_API_KEY")
+        or _env_get("LLM_API_KEY")
         or ""
     )
     base_url = (
-        os.getenv("LLM_BASE_URL")
-        or os.getenv("DASHSCOPE_BASE_URL")
-        or os.getenv("OPENAI_BASE_URL")
+        _env_get("LLM_BASE_URL")
+        or _env_get("DASHSCOPE_BASE_URL")
+        or _env_get("OPENAI_BASE_URL")
         or ""
     )
     return LLMSettings(
         api_key=api_key,
         base_url=base_url,
-        model=os.getenv("LLM_MODEL", "qwen3-max"),
-        timeout_sec=int(os.getenv("LLM_TIMEOUT_SEC", "30")),
-        max_retry=int(os.getenv("LLM_MAX_RETRY", "2")),
+        model=_env_get("LLM_MODEL", "qwen3-max"),
+        timeout_sec=int(_env_get("LLM_TIMEOUT_SEC", "30")),
+        max_retry=int(_env_get("LLM_MAX_RETRY", "2")),
     )
 
 
@@ -68,10 +79,10 @@ class ODPSSettings(BaseModel):
 @lru_cache(maxsize=1)
 def load_odps_settings() -> ODPSSettings:
     return ODPSSettings(
-        access_key_id=os.getenv("ODPS_ACCESS_KEY_ID", ""),
-        access_key_secret=os.getenv("ODPS_ACCESS_KEY_SECRET", ""),
-        project=os.getenv("ODPS_PROJECT", ""),
-        endpoint=os.getenv("ODPS_ENDPOINT", ""),
+        access_key_id=_env_get("ODPS_ACCESS_KEY_ID", ""),
+        access_key_secret=_env_get("ODPS_ACCESS_KEY_SECRET", ""),
+        project=_env_get("ODPS_PROJECT", ""),
+        endpoint=_env_get("ODPS_ENDPOINT", ""),
     )
 
 

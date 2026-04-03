@@ -25,6 +25,7 @@ class GraphState(BaseModel):
     decision_record: DecisionRecord | None = None
     route: str = "in_progress"
     error_type: str | None = None
+    timing_ms: dict[str, float] | None = None
 
 
 def build_initial_state(

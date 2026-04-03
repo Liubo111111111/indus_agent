@@ -15,6 +15,7 @@ class StaticProfilePromptBuilder:
         payload = {
             "enterprise_name": state.wide_row.enterprise_name,
             "business_scope": state.wide_row.business_scope,
+            "authentication_time": state.wide_row.authentication_time or "无",
             "taxonomy": [
                 {
                     "label": label.display_name,
@@ -32,6 +33,7 @@ class StaticProfilePromptBuilder:
             f"{asset.user_template.format(
                 enterprise_name=state.wide_row.enterprise_name,
                 business_scope=state.wide_row.business_scope or '无',
+                authentication_time=payload['authentication_time'],
                 taxonomy_json=json.dumps(payload['taxonomy'], ensure_ascii=False, indent=2),
             ).strip()}"
         )

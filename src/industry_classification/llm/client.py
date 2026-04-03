@@ -33,6 +33,7 @@ class HttpLLMClient:
             )
         self._client = httpx.Client(
             timeout=httpx.Timeout(self._settings.timeout_sec, connect=10.0),
+            trust_env=False,
         )
 
     def complete(self, prompt: str, payload: dict) -> str:
@@ -49,7 +50,20 @@ class HttpLLMClient:
                     attempt, self._settings.model, len(text),
                 )
                 return text
-            except (httpx.HTTPStatusError, httpx.TimeoutException) as exc:
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                if not self._should_retry_http_status(exc.response.status_code):
+                    raise RuntimeError(
+                        f"llm_call_failed status={exc.response.status_code} "
+                        f"body={self._response_excerpt(exc.response)}"
+                    ) from exc
+                wait = min(2 ** attempt, 8)
+                logger.warning(
+                    "llm_complete retry attempt=%d status=%d error=%s wait=%ds",
+                    attempt, exc.response.status_code, type(exc).__name__, wait,
+                )
+                time.sleep(wait)
+            except httpx.TimeoutException as exc:
                 last_error = exc
                 wait = min(2 ** attempt, 8)
                 logger.warning(
@@ -61,7 +75,8 @@ class HttpLLMClient:
                 raise RuntimeError(f"llm_call_failed: {exc}") from exc
 
         raise RuntimeError(
-            f"llm_call_exhausted_retries after {self._settings.max_retry + 1} attempts: {last_error}"
+            "llm_call_exhausted_retries after "
+            f"{self._settings.max_retry + 1} attempts: {self._format_error(last_error)}"
         )
 
     def _build_messages(self, prompt: str) -> list[dict[str, str]]:
@@ -94,6 +109,26 @@ class HttpLLMClient:
         )
         resp.raise_for_status()
         return resp.json()
+
+    @staticmethod
+    def _should_retry_http_status(status_code: int) -> bool:
+        return status_code == 429 or status_code >= 500
+
+    @staticmethod
+    def _response_excerpt(response: httpx.Response, limit: int = 200) -> str:
+        text = response.text.strip()
+        if not text:
+            return "<empty>"
+        return text[:limit]
+
+    @classmethod
+    def _format_error(cls, error: Exception | None) -> str:
+        if isinstance(error, httpx.HTTPStatusError):
+            return (
+                f"status={error.response.status_code} "
+                f"body={cls._response_excerpt(error.response)}"
+            )
+        return str(error)
 
     @staticmethod
     def _extract_text(response: dict[str, Any]) -> str:

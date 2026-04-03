@@ -9,6 +9,15 @@ user_template: |
   企业名称:
   {enterprise_name}
 
+  企业认证时间:
+  {authentication_time}
+
+  最新一次发布时间:
+  {latest_publish_time}
+
+  最新一次发布工种:
+  {latest_publish_job_names_json}
+
   静态画像总结:
   {static_summary}
 

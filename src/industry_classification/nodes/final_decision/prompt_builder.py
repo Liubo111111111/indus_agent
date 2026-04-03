@@ -18,6 +18,9 @@ class FinalDecisionPromptBuilder:
         taxonomy = load_taxonomy()
         payload = {
             "enterprise_name": state.wide_row.enterprise_name,
+            "authentication_time": state.wide_row.authentication_time or "无",
+            "latest_publish_time": state.wide_row.latest_publish_time or "无",
+            "latest_publish_job_names": state.wide_row.latest_publish_job_names,
             "static_summary": state.static_profile.summary,
             "static_top3_labels": [item.model_dump() for item in state.static_profile.top3_labels],
             "dynamic_summary": state.dynamic_profile.summary,
@@ -43,6 +46,9 @@ class FinalDecisionPromptBuilder:
             f"[USER]\n"
             f"{asset.user_template.format(
                 enterprise_name=state.wide_row.enterprise_name,
+                authentication_time=payload['authentication_time'],
+                latest_publish_time=payload['latest_publish_time'],
+                latest_publish_job_names_json=json.dumps(payload['latest_publish_job_names'], ensure_ascii=False),
                 static_summary=state.static_profile.summary,
                 static_top3_labels_json=json.dumps(payload['static_top3_labels'], ensure_ascii=False, indent=2),
                 dynamic_summary=state.dynamic_profile.summary,

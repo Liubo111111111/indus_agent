@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from industry_classification.audit import build_audit_record
 from industry_classification.graph_state import GraphState
+from industry_classification.writers.sqlite_store import SqliteResultStore
 
 
 def _publish_key(state: GraphState) -> str:
@@ -16,17 +17,24 @@ def _publish_key(state: GraphState) -> str:
 
 
 class FormalOutputWriter:
-    def __init__(self, store: dict[str, dict]):
+    def __init__(self, store: dict[str, dict], sqlite_store: SqliteResultStore | None = None):
         self.store = store
+        self.sqlite_store = sqlite_store
 
     def run(self, state: GraphState) -> GraphState:
         if state.decision_record is None:
             raise ValueError("formal_output_requires_decision_record")
-        self.store[_publish_key(state)] = {
+        publish_key = _publish_key(state)
+        record = {
+            "enterprise_name": state.wide_row.enterprise_name,
+            "business_scope": state.wide_row.business_scope,
             "final_label": state.decision_record.final_label,
             "confidence_level": state.decision_record.confidence_level,
             "decision_reason": state.decision_record.decision_reason,
             "supporting_evidence": list(state.decision_record.supporting_evidence),
+            "static_profile": state.static_profile.model_dump() if state.static_profile else None,
+            "dynamic_profile": state.dynamic_profile.model_dump() if state.dynamic_profile else None,
+            "timing_ms": state.timing_ms,
             "audit": build_audit_record(
                 run_id=state.run_id,
                 entity_key=state.entity_key,
@@ -42,5 +50,14 @@ class FormalOutputWriter:
                 route=state.route,
             ),
         }
+        self.store[publish_key] = record
+        if self.sqlite_store is not None:
+            self.sqlite_store.upsert_run(state)
+            self.sqlite_store.upsert_published_record(
+                publish_key=publish_key,
+                run_id=state.run_id,
+                entity_key=state.entity_key,
+                route="formal",
+                record=record,
+            )
         return state
-

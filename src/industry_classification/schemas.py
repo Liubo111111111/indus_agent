@@ -32,6 +32,9 @@ class WideRow(BaseModel):
     distinct_job_name_cnt_90d: int = Field(ge=0)
     top_job_names: list[TopJobStat] = Field(default_factory=list)
     jobs_recent_20: list[JobFact] = Field(default_factory=list)
+    latest_publish_time: str | None = None
+    latest_publish_job_names: list[str] = Field(default_factory=list)
+    authentication_time: str | None = None
 
 
 class LabelReason(BaseModel):

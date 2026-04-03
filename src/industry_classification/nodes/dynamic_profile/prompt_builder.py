@@ -17,6 +17,8 @@ class DynamicProfilePromptBuilder:
             "distinct_job_name_cnt_90d": state.wide_row.distinct_job_name_cnt_90d,
             "top_job_names": [item.model_dump() for item in state.wide_row.top_job_names],
             "jobs_recent_20": [item.model_dump() for item in state.wide_row.jobs_recent_20],
+            "latest_publish_time": state.wide_row.latest_publish_time or "无",
+            "latest_publish_job_names": state.wide_row.latest_publish_job_names,
         }
         budget = enforce_prompt_budget("dynamic_profile", payload)
         if not budget.allowed:
@@ -29,6 +31,8 @@ class DynamicProfilePromptBuilder:
             f"{asset.user_template.format(
                 total_job_post_cnt_90d=payload['total_job_post_cnt_90d'],
                 distinct_job_name_cnt_90d=payload['distinct_job_name_cnt_90d'],
+                latest_publish_time=payload['latest_publish_time'],
+                latest_publish_job_names_json=json.dumps(payload['latest_publish_job_names'], ensure_ascii=False),
                 top_job_names_json=json.dumps(payload['top_job_names'], ensure_ascii=False, indent=2),
                 jobs_recent_20_json=json.dumps(payload['jobs_recent_20'], ensure_ascii=False, indent=2),
             ).strip()}"

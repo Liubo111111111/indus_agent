@@ -27,6 +27,9 @@ _COLUMNS = [
     "distinct_job_name_cnt_90d",
     "top_job_names_json",
     "jobs_recent_20_json",
+    "latest_publish_time",
+    "latest_publish_job_names_json",
+    "authentication_time",
 ]
 
 
@@ -230,6 +233,11 @@ def _csv_row_to_wide_row(row: dict[str, str]) -> dict[str, Any]:
         "distinct_job_name_cnt_90d": int(row.get("distinct_job_name_cnt_90d", 0)),
         "top_job_names": _normalize_top_jobs(top_job_names_raw),
         "jobs_recent_20": _normalize_job_facts(jobs_recent_20_raw),
+        "latest_publish_time": row.get("latest_publish_time") or None,
+        "latest_publish_job_names": _normalize_string_list(
+            _safe_json_parse(row.get("latest_publish_job_names_json", "[]"))
+        ),
+        "authentication_time": row.get("authentication_time") or None,
     }
 
 
@@ -271,6 +279,11 @@ def _normalize_job_facts(raw: list) -> list[dict[str, Any]]:
             "add_time": str(item.get("add_time", "")),
         })
     return result
+
+
+def _normalize_string_list(raw: list) -> list[str]:
+    """标准化字符串列表，过滤空值。"""
+    return [str(item) for item in raw if item and str(item).strip()]
 
 
 def fetch_and_convert(

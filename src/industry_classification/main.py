@@ -18,6 +18,7 @@ from industry_classification.rate_limit import MinuteRateLimiter, RuntimeConfig
 from industry_classification.writers.fallback_output import FallbackOutputWriter
 from industry_classification.writers.formal_output import FormalOutputWriter
 from industry_classification.writers.jsonl_store import JsonlKeyedStore
+from industry_classification.writers.sqlite_store import SqliteResultStore
 
 
 def _hash_payload(payload: dict[str, Any]) -> str:
@@ -89,89 +90,116 @@ def run_once(
     client,
     formal_store: dict[str, dict],
     fallback_store: dict[str, dict],
+    sqlite_store: SqliteResultStore | None = None,
+    sqlite_path: str | Path | None = None,
     cache_store: dict[str, dict] | None = None,
     cache_lock: threading.Lock | None = None,
     feature_schema_version: str = "v1",
     taxonomy_version: str = "v1",
     graph_version: str = "v1",
 ) -> GraphState:
-    state = build_initial_state(
-        row_dict=row_dict,
-        run_id=run_id,
-        feature_schema_version=feature_schema_version,
-        taxonomy_version=taxonomy_version,
-        graph_version=graph_version,
-    )
+    resolved_sqlite_store = sqlite_store
+    owns_sqlite_store = False
+    if resolved_sqlite_store is None and sqlite_path is not None:
+        resolved_sqlite_store = SqliteResultStore(sqlite_path)
+        owns_sqlite_store = True
 
-    static_service = StaticProfileService(client=client, model_version="mock-static-v1", prompt_version="v1")
-    dynamic_service = DynamicProfileService(client=client, model_version="mock-dynamic-v1", prompt_version="v1")
-    final_service = FinalDecisionService(client=client, model_version="mock-final-v1", prompt_version="v1")
+    try:
+        state = build_initial_state(
+            row_dict=row_dict,
+            run_id=run_id,
+            feature_schema_version=feature_schema_version,
+            taxonomy_version=taxonomy_version,
+            graph_version=graph_version,
+        )
 
-    static_key = build_cache_key(
-        entity_key=state.entity_key,
-        input_hash=_hash_payload(
-            {
-                "enterprise_name": state.wide_row.enterprise_name,
-                "business_scope": state.wide_row.business_scope,
-            }
-        ),
-        graph_version=state.graph_version,
-        taxonomy_version=state.taxonomy_version,
-        prompt_version=state.prompt_version_static,
-        model_version="mock-static-v1",
-    )
-    state = _cached_profile(
-        cache_store,
-        static_key,
-        lambda: static_service.run(state),
-        cache_lock=cache_lock,
-    )
+        static_service = StaticProfileService(
+            client=client,
+            model_version="mock-static-v1",
+            prompt_version="v1",
+            sqlite_store=resolved_sqlite_store,
+        )
+        dynamic_service = DynamicProfileService(
+            client=client,
+            model_version="mock-dynamic-v1",
+            prompt_version="v1",
+            sqlite_store=resolved_sqlite_store,
+        )
+        final_service = FinalDecisionService(
+            client=client,
+            model_version="mock-final-v1",
+            prompt_version="v1",
+            sqlite_store=resolved_sqlite_store,
+        )
 
-    dynamic_key = build_cache_key(
-        entity_key=state.entity_key,
-        input_hash=_hash_payload(
-            {
-                "top_job_names": [item.model_dump() for item in state.wide_row.top_job_names],
-                "jobs_recent_20": [item.model_dump() for item in state.wide_row.jobs_recent_20],
-            }
-        ),
-        graph_version=state.graph_version,
-        taxonomy_version=state.taxonomy_version,
-        prompt_version=state.prompt_version_dynamic,
-        model_version="mock-dynamic-v1",
-    )
-    state = _cached_profile(
-        cache_store,
-        dynamic_key,
-        lambda: dynamic_service.run(state),
-        cache_lock=cache_lock,
-    )
+        static_key = build_cache_key(
+            entity_key=state.entity_key,
+            input_hash=_hash_payload(
+                {
+                    "enterprise_name": state.wide_row.enterprise_name,
+                    "business_scope": state.wide_row.business_scope,
+                }
+            ),
+            graph_version=state.graph_version,
+            taxonomy_version=state.taxonomy_version,
+            prompt_version=state.prompt_version_static,
+            model_version="mock-static-v1",
+        )
+        state = _cached_profile(
+            cache_store,
+            static_key,
+            lambda: static_service.run(state),
+            cache_lock=cache_lock,
+        )
 
-    final_key = build_cache_key(
-        entity_key=state.entity_key,
-        input_hash=_hash_payload(
-            {
-                "static_profile": state.static_profile.model_dump() if state.static_profile else None,
-                "dynamic_profile": state.dynamic_profile.model_dump() if state.dynamic_profile else None,
-            }
-        ),
-        graph_version=state.graph_version,
-        taxonomy_version=state.taxonomy_version,
-        prompt_version=state.prompt_version_final,
-        model_version="mock-final-v1",
-    )
-    state = _cached_profile(
-        cache_store,
-        final_key,
-        lambda: final_service.run(state),
-        cache_lock=cache_lock,
-    )
+        dynamic_key = build_cache_key(
+            entity_key=state.entity_key,
+            input_hash=_hash_payload(
+                {
+                    "top_job_names": [item.model_dump() for item in state.wide_row.top_job_names],
+                    "jobs_recent_20": [item.model_dump() for item in state.wide_row.jobs_recent_20],
+                }
+            ),
+            graph_version=state.graph_version,
+            taxonomy_version=state.taxonomy_version,
+            prompt_version=state.prompt_version_dynamic,
+            model_version="mock-dynamic-v1",
+        )
+        state = _cached_profile(
+            cache_store,
+            dynamic_key,
+            lambda: dynamic_service.run(state),
+            cache_lock=cache_lock,
+        )
 
-    if state.route == "formal":
-        writer = FormalOutputWriter(formal_store)
-    else:
-        writer = FallbackOutputWriter(fallback_store)
-    return writer.run(state)
+        final_key = build_cache_key(
+            entity_key=state.entity_key,
+            input_hash=_hash_payload(
+                {
+                    "static_profile": state.static_profile.model_dump() if state.static_profile else None,
+                    "dynamic_profile": state.dynamic_profile.model_dump() if state.dynamic_profile else None,
+                }
+            ),
+            graph_version=state.graph_version,
+            taxonomy_version=state.taxonomy_version,
+            prompt_version=state.prompt_version_final,
+            model_version="mock-final-v1",
+        )
+        state = _cached_profile(
+            cache_store,
+            final_key,
+            lambda: final_service.run(state),
+            cache_lock=cache_lock,
+        )
+
+        if state.route == "formal":
+            writer = FormalOutputWriter(formal_store, sqlite_store=resolved_sqlite_store)
+        else:
+            writer = FallbackOutputWriter(fallback_store, sqlite_store=resolved_sqlite_store)
+        return writer.run(state)
+    finally:
+        if owns_sqlite_store and resolved_sqlite_store is not None:
+            resolved_sqlite_store.close()
 
 
 def _default_dry_run_cases_path() -> Path:
@@ -228,6 +256,7 @@ def _run_with_retry(
     client_factory,
     formal_store,
     fallback_store,
+    sqlite_store: SqliteResultStore | None,
     cache_store: dict[str, GraphState],
     cache_lock: threading.Lock,
     rate_limiter: MinuteRateLimiter,
@@ -243,6 +272,7 @@ def _run_with_retry(
                 client=client,
                 formal_store=formal_store,
                 fallback_store=fallback_store,
+                sqlite_store=sqlite_store,
                 cache_store=cache_store,
                 cache_lock=cache_lock,
             )
@@ -258,6 +288,7 @@ def run_batch(
     client_factory,
     formal_store,
     fallback_store,
+    sqlite_store: SqliteResultStore | None = None,
     runtime_config: RuntimeConfig | None = None,
 ) -> dict[str, Any]:
     del pt
@@ -296,6 +327,7 @@ def run_batch(
                 client_factory,
                 formal_store,
                 fallback_store,
+                sqlite_store,
                 cache_store,
                 cache_lock,
                 limiter,
@@ -328,15 +360,20 @@ def run_file_batch(
     responses = json.loads(Path(responses_path).read_text(encoding="utf-8"))
     formal_store = JsonlKeyedStore(Path(output_dir) / "formal_output.jsonl")
     fallback_store = JsonlKeyedStore(Path(output_dir) / "fallback_output.jsonl")
+    sqlite_store = SqliteResultStore(Path(output_dir) / "pipeline_results.sqlite3")
 
-    summary = run_batch(
-        rows=rows,
-        pt=pt,
-        client_factory=_build_mock_client_factory(responses),
-        formal_store=formal_store,
-        fallback_store=fallback_store,
-        runtime_config=runtime_config,
-    )
+    try:
+        summary = run_batch(
+            rows=rows,
+            pt=pt,
+            client_factory=_build_mock_client_factory(responses),
+            formal_store=formal_store,
+            fallback_store=fallback_store,
+            sqlite_store=sqlite_store,
+            runtime_config=runtime_config,
+        )
+    finally:
+        sqlite_store.close()
     (Path(output_dir) / "run_summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -405,19 +442,24 @@ def main(argv: list[str] | None = None) -> int:
         llm_client = HttpLLMClient()
         formal_store = JsonlKeyedStore(output_dir / "formal_output.jsonl")
         fallback_store = JsonlKeyedStore(output_dir / "fallback_output.jsonl")
+        sqlite_store = SqliteResultStore(output_dir / "pipeline_results.sqlite3")
         cache_store: dict[str, GraphState] = {}
 
         def _real_client_factory(row_dict: dict[str, Any]) -> HttpLLMClient:
             return llm_client
 
-        summary = run_batch(
-            rows=rows,
-            pt=args.pt,
-            client_factory=_real_client_factory,
-            formal_store=formal_store,
-            fallback_store=fallback_store,
-            runtime_config=runtime_config,
-        )
+        try:
+            summary = run_batch(
+                rows=rows,
+                pt=args.pt,
+                client_factory=_real_client_factory,
+                formal_store=formal_store,
+                fallback_store=fallback_store,
+                sqlite_store=sqlite_store,
+                runtime_config=runtime_config,
+            )
+        finally:
+            sqlite_store.close()
         (output_dir / "run_summary.json").write_text(
             json.dumps(summary, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -459,18 +501,23 @@ def main(argv: list[str] | None = None) -> int:
         llm_client = HttpLLMClient()
         formal_store = JsonlKeyedStore(output_dir / "formal_output.jsonl")
         fallback_store = JsonlKeyedStore(output_dir / "fallback_output.jsonl")
+        sqlite_store = SqliteResultStore(output_dir / "pipeline_results.sqlite3")
 
         def _real_client_factory(row_dict: dict[str, Any]) -> HttpLLMClient:
             return llm_client
 
-        summary = run_batch(
-            rows=rows,
-            pt=args.pt,
-            client_factory=_real_client_factory,
-            formal_store=formal_store,
-            fallback_store=fallback_store,
-            runtime_config=runtime_config,
-        )
+        try:
+            summary = run_batch(
+                rows=rows,
+                pt=args.pt,
+                client_factory=_real_client_factory,
+                formal_store=formal_store,
+                fallback_store=fallback_store,
+                sqlite_store=sqlite_store,
+                runtime_config=runtime_config,
+            )
+        finally:
+            sqlite_store.close()
         (output_dir / "run_summary.json").write_text(
             json.dumps(summary, ensure_ascii=False, indent=2),
             encoding="utf-8",
