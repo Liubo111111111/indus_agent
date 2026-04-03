@@ -32,7 +32,6 @@ class WideRow(BaseModel):
     distinct_job_name_cnt_90d: int = Field(ge=0)
     top_job_names: list[TopJobStat] = Field(default_factory=list)
     jobs_recent_20: list[JobFact] = Field(default_factory=list)
-    jobs_all_90d: list[JobFact] = Field(default_factory=list)
 
 
 class LabelReason(BaseModel):
@@ -67,4 +66,3 @@ class DecisionRecord(BaseModel):
     decision_reason: str
     supporting_evidence: list[str] = Field(default_factory=list)
     conflict_note: str | None = None
-

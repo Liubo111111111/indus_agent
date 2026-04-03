@@ -137,9 +137,6 @@ def test_wide_row_accepts_expected_contract():
         "jobs_recent_20": [
             {"job_name": "保安", "desc": "小区秩序维护", "add_time": "2026-04-01 10:00:00"},
         ],
-        "jobs_all_90d": [
-            {"job_name": "保安", "desc": "小区秩序维护", "add_time": "2026-04-01 10:00:00"},
-        ],
     }
     assert WideRow.model_validate(row).enterprise_name == "某物业公司"
 ```
@@ -160,13 +157,12 @@ Create `sql/build_enterprise_industry_wide_table.sql` with these output columns:
 - `distinct_job_name_cnt_90d`
 - `top_job_names_json`
 - `jobs_recent_20_json`
-- `jobs_all_90d_json`
 - `pt`
 
 Rules:
 - Remove hardcoded upstream partitions like `pt = '20210807'`.
-- Keep 90-day full facts for replay only.
-- Precompute top-10 job stats and recent-20 samples in SQL.
+- Use the latest 20 samples from the last 30 days as replay context.
+- Precompute top-10 job stats and the latest 20 samples in SQL.
 - Do not keep only one opaque `feature_json`.
 
 **Step 4: Run test to verify schema fixture still fails for the right reason**

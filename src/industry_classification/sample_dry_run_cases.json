@@ -14,9 +14,6 @@
       ],
       "jobs_recent_20": [
         {"job_name": "保安", "desc": "小区秩序维护", "add_time": "2026-04-01 10:00:00"}
-      ],
-      "jobs_all_90d": [
-        {"job_name": "保安", "desc": "小区秩序维护", "add_time": "2026-04-01 10:00:00"}
       ]
     },
     "responses": {
@@ -38,9 +35,6 @@
         {"job_name": "文员", "cnt": 1, "ratio": 1.0}
       ],
       "jobs_recent_20": [
-        {"job_name": "文员", "desc": "日常行政", "add_time": "2026-04-01 09:00:00"}
-      ],
-      "jobs_all_90d": [
         {"job_name": "文员", "desc": "日常行政", "add_time": "2026-04-01 09:00:00"}
       ]
     },

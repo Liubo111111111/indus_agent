@@ -347,11 +347,13 @@ def run_file_batch(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Industry classification pipeline")
     parser.add_argument("--pt", required=True, help="bizdate partition in yyyymmdd")
-    parser.add_argument("--mode", required=True, choices=["dry-run", "file-batch"], help="execution mode")
+    parser.add_argument("--mode", required=True, choices=["dry-run", "file-batch", "run", "run-single", "fetch", "fetch-run"], help="execution mode")
     parser.add_argument("--cases-path", help="optional path to dry-run cases json")
-    parser.add_argument("--input-path", help="json/jsonl input path for file-batch mode")
-    parser.add_argument("--responses-path", help="mock responses keyed by social_credit_code")
-    parser.add_argument("--output-dir", help="output directory for file-batch mode")
+    parser.add_argument("--input-path", help="json/jsonl input path for file-batch / run mode")
+    parser.add_argument("--responses-path", help="mock responses keyed by social_credit_code (file-batch only)")
+    parser.add_argument("--output-dir", help="output directory", default="output")
+    parser.add_argument("--format", choices=["json", "jsonl"], default="json", help="output format for fetch mode")
+    parser.add_argument("--max-rows", type=int, default=100, help="max rows to fetch from ODPS")
     parser.add_argument("--worker-count", type=int, default=4)
     parser.add_argument("--provider-rate-limit-per-minute", type=int, default=120)
     parser.add_argument("--timeout-seconds", type=int, default=30)
@@ -382,6 +384,99 @@ def main(argv: list[str] | None = None) -> int:
             runtime_config=runtime_config,
         )
         print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.mode in ("run", "run-single"):
+        from industry_classification.llm.client import HttpLLMClient
+
+        if not args.input_path:
+            raise ValueError(f"{args.mode} mode requires --input-path")
+        output_dir = Path(args.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        rows = list(load_rows_from_file(args.input_path, pt=args.pt))
+        if not rows:
+            print("No rows matched the given --pt filter.")
+            return 1
+
+        if args.mode == "run-single":
+            rows = rows[:1]
+
+        llm_client = HttpLLMClient()
+        formal_store = JsonlKeyedStore(output_dir / "formal_output.jsonl")
+        fallback_store = JsonlKeyedStore(output_dir / "fallback_output.jsonl")
+        cache_store: dict[str, GraphState] = {}
+
+        def _real_client_factory(row_dict: dict[str, Any]) -> HttpLLMClient:
+            return llm_client
+
+        summary = run_batch(
+            rows=rows,
+            pt=args.pt,
+            client_factory=_real_client_factory,
+            formal_store=formal_store,
+            fallback_store=fallback_store,
+            runtime_config=runtime_config,
+        )
+        (output_dir / "run_summary.json").write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        llm_client.close()
+        return 0
+
+    if args.mode == "fetch":
+        from industry_classification.data_fetcher import fetch_and_convert
+
+        json_path = fetch_and_convert(
+            pt=args.pt,
+            output_dir=args.output_dir,
+            format=args.format,
+            max_rows=args.max_rows,
+        )
+        print(f"数据已准备: {json_path}")
+        return 0
+
+    if args.mode == "fetch-run":
+        from industry_classification.data_fetcher import fetch_and_convert
+        from industry_classification.llm.client import HttpLLMClient
+
+        output_dir = Path(args.output_dir)
+        json_path = fetch_and_convert(
+            pt=args.pt,
+            output_dir=output_dir / "data",
+            format="json",
+            max_rows=args.max_rows,
+        )
+        print(f"数据拉取完成: {json_path}")
+
+        rows = list(load_rows_from_file(str(json_path)))
+        if not rows:
+            print("拉取到的数据为空，无法运行分类。")
+            return 1
+
+        llm_client = HttpLLMClient()
+        formal_store = JsonlKeyedStore(output_dir / "formal_output.jsonl")
+        fallback_store = JsonlKeyedStore(output_dir / "fallback_output.jsonl")
+
+        def _real_client_factory(row_dict: dict[str, Any]) -> HttpLLMClient:
+            return llm_client
+
+        summary = run_batch(
+            rows=rows,
+            pt=args.pt,
+            client_factory=_real_client_factory,
+            formal_store=formal_store,
+            fallback_store=fallback_store,
+            runtime_config=runtime_config,
+        )
+        (output_dir / "run_summary.json").write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        llm_client.close()
         return 0
 
     raise ValueError(f"unsupported mode: {args.mode}")

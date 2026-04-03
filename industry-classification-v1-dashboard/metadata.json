@@ -1,0 +1,5 @@
+{
+  "name": "Industry Classification V1 Dashboard",
+  "description": "Frontend dashboard for the LangGraph-based enterprise industry classification pipeline.",
+  "requestFramePermissions": []
+}

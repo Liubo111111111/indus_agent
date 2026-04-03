@@ -25,7 +25,6 @@ def test_low_confidence_routes_to_fallback_branch():
                 "distinct_job_name_cnt_90d": 4,
                 "top_job_names": [{"job_name": "保安", "cnt": 5, "ratio": 0.42}],
                 "jobs_recent_20": [{"job_name": "保安", "desc": "小区秩序维护", "add_time": "2026-04-01 10:00:00"}],
-                "jobs_all_90d": [{"job_name": "保安", "desc": "小区秩序维护", "add_time": "2026-04-01 10:00:00"}],
             },
             "decision_record": {
                 "final_label": "其他",

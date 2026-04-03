@@ -4,9 +4,11 @@
 -- 1. 输出主体字段
 -- 2. 输出 90 天统计字段
 -- 3. 输出近 30 天最新 20 条样本
--- 4. 输出 90 天全量招聘事实，供回放与审计使用
+-- 4. (已移除) 90 天全量招聘事实
 
 SET odps.stage.joiner.mem=10240;
+
+DROP TABLE IF EXISTS yuapo_dev.enterprise_industry_wide_table;
 
 CREATE TABLE IF NOT EXISTS yuapo_dev.enterprise_industry_wide_table
 (
@@ -17,8 +19,7 @@ CREATE TABLE IF NOT EXISTS yuapo_dev.enterprise_industry_wide_table
     total_job_post_cnt_90d BIGINT COMMENT '近90天招聘总数',
     distinct_job_name_cnt_90d BIGINT COMMENT '近90天去重岗位数',
     top_job_names_json STRING COMMENT '近90天岗位Top10统计JSON',
-    jobs_recent_20_json STRING COMMENT '近30天最新20条招聘样本JSON',
-    jobs_all_90d_json STRING COMMENT '近90天全量招聘事实JSON'
+    jobs_recent_20_json STRING COMMENT '近30天最新20条招聘样本JSON'
 )
 PARTITIONED BY (pt STRING COMMENT '业务日期分区,格式yyyymmdd')
 LIFECYCLE 180;
@@ -40,7 +41,7 @@ WITH enterprise_master AS (
                 ORDER BY updated_at DESC
             ) AS rn
         FROM yuapo.ods_user_central_enterprise_master_data
-        WHERE pt = '${bdp.system.bizdate}'
+        WHERE pt = '20210807'
           AND enterprise_status = 2
     ) t
     WHERE rn = 1
@@ -52,20 +53,20 @@ job_info AS (
         title,
         detail
     FROM yuapo.ods_gczdw_q
-    WHERE pt = '${bdp.system.bizdate}'
+    WHERE pt = '20210807'
       AND user_id > 0
       AND is_check = 2
 ),
 job_publish_detail AS (
     SELECT
         social_credit_code,
-        title,
+        prim_gz_names,
         detail,
         add_time
     FROM (
         SELECT
             t1.social_credit_code,
-            t3.title,
+            t2.prim_gz_names,
             t3.detail,
             FROM_UNIXTIME(t2.issue_ts) AS add_time,
             ROW_NUMBER() OVER (
@@ -81,19 +82,32 @@ job_publish_detail AS (
         JOIN job_info t3
             ON t2.info_id = CAST(t3.job_id AS STRING)
         WHERE t1.pt = '${bdp.system.bizdate}'
-          AND FROM_UNIXTIME(t2.issue_ts) >= TO_DATE('${bdp.system.bizdate}', 'yyyymmdd') - 90
-          AND FROM_UNIXTIME(t2.issue_ts) < TO_DATE('${bdp.system.bizdate}', 'yyyymmdd') + 1
+          AND FROM_UNIXTIME(t2.issue_ts) >= DATEADD(TO_DATE('${bdp.system.bizdate}', 'yyyymmdd'), -90, 'dd')
+          AND FROM_UNIXTIME(t2.issue_ts) < DATEADD(TO_DATE('${bdp.system.bizdate}', 'yyyymmdd'), 1, 'dd')
     ) src
     WHERE rn = 1
-      AND title IS NOT NULL
-      AND title != ''
+      AND prim_gz_names IS NOT NULL
+      AND SIZE(prim_gz_names) > 0
+),
+-- 将 prim_gz_names（ARRAY<STRING>）拆分为独立行
+-- 例如 ["家电维修/清洗/安装", "小工/拆除/打磨/打孔"] → 两行
+job_publish_exploded AS (
+    SELECT
+        social_credit_code,
+        TRIM(gz_name) AS title,
+        detail,
+        add_time
+    FROM job_publish_detail
+    LATERAL VIEW EXPLODE(prim_gz_names) tmp AS gz_name
+    WHERE TRIM(gz_name) IS NOT NULL
+      AND TRIM(gz_name) != ''
 ),
 job_name_stats AS (
     SELECT
         social_credit_code,
         title AS job_name,
         COUNT(1) AS cnt
-    FROM job_publish_detail
+    FROM job_publish_exploded
     GROUP BY social_credit_code, title
 ),
 job_name_ranked AS (
@@ -116,7 +130,7 @@ job_name_top10 AS (
                 NAMED_STRUCT(
                     'job_name', job_name,
                     'cnt', cnt,
-                    'ratio', IF(total_cnt = 0, 0D, CAST(cnt AS DOUBLE) / CAST(total_cnt AS DOUBLE))
+                    'ratio', IF(total_cnt = 0, 0D, ROUND(CAST(cnt AS DOUBLE) / CAST(total_cnt AS DOUBLE), 2))
                 )
             )
         ) AS top_job_names_json
@@ -124,21 +138,12 @@ job_name_top10 AS (
     WHERE rn <= 10
     GROUP BY social_credit_code
 ),
-job_summary AS (
+job_summary_agg AS (
     SELECT
         social_credit_code,
         COUNT(1) AS total_job_post_cnt_90d,
-        COUNT(DISTINCT title) AS distinct_job_name_cnt_90d,
-        TO_JSON(
-            COLLECT_LIST(
-                NAMED_STRUCT(
-                    'job_name', title,
-                    'desc', detail,
-                    'add_time', CAST(add_time AS STRING)
-                )
-            )
-        ) AS jobs_all_90d_json
-    FROM job_publish_detail
+        COUNT(DISTINCT title) AS distinct_job_name_cnt_90d
+    FROM job_publish_exploded
     GROUP BY social_credit_code
 ),
 recent_jobs_ranked AS (
@@ -151,8 +156,8 @@ recent_jobs_ranked AS (
             PARTITION BY social_credit_code
             ORDER BY add_time DESC, title ASC
         ) AS rn
-    FROM job_publish_detail
-    WHERE add_time >= TO_DATE('${bdp.system.bizdate}', 'yyyymmdd') - 30
+    FROM job_publish_exploded
+    WHERE add_time >= DATEADD(TO_DATE('${bdp.system.bizdate}', 'yyyymmdd'), -30, 'dd')
 ),
 recent_jobs_top20 AS (
     SELECT
@@ -162,7 +167,7 @@ recent_jobs_top20 AS (
                 NAMED_STRUCT(
                     'job_name', title,
                     'desc', detail,
-                    'add_time', CAST(add_time AS STRING)
+                    'add_time', SUBSTR(CAST(add_time AS STRING), 1, 10)
                 )
             )
         ) AS jobs_recent_20_json
@@ -180,10 +185,9 @@ SELECT
     COALESCE(s.total_job_post_cnt_90d, 0) AS total_job_post_cnt_90d,
     COALESCE(s.distinct_job_name_cnt_90d, 0) AS distinct_job_name_cnt_90d,
     COALESCE(t.top_job_names_json, '[]') AS top_job_names_json,
-    COALESCE(r.jobs_recent_20_json, '[]') AS jobs_recent_20_json,
-    COALESCE(s.jobs_all_90d_json, '[]') AS jobs_all_90d_json
+    COALESCE(r.jobs_recent_20_json, '[]') AS jobs_recent_20_json
 FROM enterprise_master m
-LEFT JOIN job_summary s
+INNER JOIN job_summary_agg s
     ON m.social_credit_code = s.social_credit_code
 LEFT JOIN job_name_top10 t
     ON m.social_credit_code = t.social_credit_code
