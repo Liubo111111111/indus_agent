@@ -14,11 +14,16 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from industry_classification.api.auth import FeishuAuthService
 from industry_classification.api.schemas import (
+    AdminAuthAuditResponse,
+    AdminOverviewResponse,
+    AccessSettingsResponse,
+    AccessSettingsUpdate,
     AnnotationRequest,
     AuthSessionResponse,
     BatchAccepted,
     BatchRequest,
     ClassifyBatchUploadAccepted,
+    ClassifyByJobNameRequest,
     ClassifySingleRequest,
     ReviewRequest,
     SettingsUpdate,
@@ -48,22 +53,71 @@ def create_router(
     """Build and return an :class:`APIRouter` wired to the given services."""
 
     router = APIRouter()
-    auth = auth_service or FeishuAuthService()
+    auth = auth_service
 
     def require_auth(request: Request):
+        if auth is None:
+            return None
         return auth.require_user(request)
+
+    def require_admin(request: Request):
+        if auth is None:
+            return None
+        return auth.require_admin(request)
 
     @router.get("/auth/session", response_model=AuthSessionResponse)
     def get_auth_session(request: Request):
+        if auth is None:
+            return {
+                "enabled": False,
+                "authenticated": False,
+                "user": None,
+                "login_url": None,
+        }
         return auth.get_session_payload(request)
+
+    @router.get("/admin/overview", response_model=AdminOverviewResponse)
+    def get_admin_overview(_user=Depends(require_admin)):
+        if auth is None:
+            raise HTTPException(status_code=503, detail="Feishu auth is not configured")
+        return auth.get_admin_overview_payload()
+
+    @router.get("/admin/auth-audit", response_model=AdminAuthAuditResponse)
+    def get_admin_auth_audit(_user=Depends(require_admin)):
+        if auth is None:
+            raise HTTPException(status_code=503, detail="Feishu auth is not configured")
+        return auth.get_auth_audit_payload()
+
+    @router.get("/admin/access-settings", response_model=AccessSettingsResponse)
+    def get_admin_access_settings(_user=Depends(require_admin)):
+        if auth is not None:
+            return auth.get_access_settings_payload()
+        return settings_service.get_access_settings()
+
+    @router.put("/admin/access-settings", response_model=AccessSettingsResponse)
+    def update_admin_access_settings(update: AccessSettingsUpdate, _user=Depends(require_admin)):
+        result = settings_service.update_access_settings(update)
+        if auth is not None:
+            auth.apply_access_settings(
+                allowed_open_ids=result.allowed_open_ids,
+                allowed_emails=result.allowed_emails,
+                admin_open_ids=result.admin_open_ids,
+                admin_emails=result.admin_emails,
+            )
+        return result
 
     @router.get("/auth/login")
     def login(next: str = Query("/", alias="next")):
+        if auth is None:
+            raise HTTPException(status_code=503, detail="Feishu auth is not configured")
         return RedirectResponse(auth.build_login_url(next))
 
     @router.get("/auth/callback")
     def auth_callback(code: str, state: str):
+        if auth is None:
+            raise HTTPException(status_code=503, detail="Feishu auth is not configured")
         user, next_path = auth.authenticate_with_code(code, state)
+        auth.record_auth_event("login", user)
         response = RedirectResponse(auth.build_frontend_redirect(next_path), status_code=302)
         response.set_cookie(
             key=auth.cookie_name,
@@ -79,6 +133,11 @@ def create_router(
 
     @router.post("/auth/logout")
     def logout(request: Request):
+        if auth is None:
+            return JSONResponse({"status": "logged_out"})
+        current_user = auth.get_current_user(request)
+        if current_user is not None:
+            auth.record_auth_event("logout", current_user)
         auth.revoke_session(request.cookies.get(auth.cookie_name))
         response = JSONResponse({"status": "logged_out"})
         response.set_cookie(
@@ -119,7 +178,7 @@ def create_router(
 
     @router.put("/runs/{run_id}/annotation")
     def annotate_run(run_id: str, req: AnnotationRequest, _user=Depends(require_auth)):
-        result = run_service.annotate(run_id, req.annotated_label, req.reviewer_notes)
+        result = run_service.annotate(run_id, req.annotated_label, req.reviewer_notes, req.reviewer_name)
         if result is None:
             raise HTTPException(status_code=404, detail="Run not found")
         return result
@@ -129,6 +188,12 @@ def create_router(
     @router.get("/search")
     def search(query: str = Query(..., min_length=1), _user=Depends(require_auth)):
         return search_service.search(query)
+
+    # -- annotations archive ----------------------------------------------
+
+    @router.get("/annotations")
+    def list_annotations(_user=Depends(require_auth)):
+        return run_service.list_annotated_runs()
 
     # -- batch ------------------------------------------------------------
 
@@ -169,11 +234,11 @@ def create_router(
     # -- settings ---------------------------------------------------------
 
     @router.get("/settings")
-    def get_settings(_user=Depends(require_auth)):
+    def get_settings(_user=Depends(require_admin)):
         return settings_service.get_settings()
 
     @router.get("/prompts")
-    def get_prompts(_user=Depends(require_auth)):
+    def get_prompts(_user=Depends(require_admin)):
         """返回所有 prompt 模板内容。"""
         from industry_classification.settings import load_prompt_asset
         prompts = {}
@@ -186,7 +251,7 @@ def create_router(
         return prompts
 
     @router.put("/settings")
-    def update_settings(update: SettingsUpdate, _user=Depends(require_auth)):
+    def update_settings(update: SettingsUpdate, _user=Depends(require_admin)):
         return settings_service.update_settings(update)
 
     # -- classify (发起分类) ----------------------------------------------
@@ -197,6 +262,14 @@ def create_router(
         if classify_single_fn:
             classify_single_fn(req.query, task_id, req.pt)
         return {"task_id": task_id, "message": f"单条分类任务已提交: {req.query}", "status": "accepted"}
+
+    @router.post("/classify/by-job-name", status_code=202)
+    def classify_by_job_name(req: ClassifyByJobNameRequest, _user=Depends(require_auth)):
+        task_id = str(uuid.uuid4())
+        if classify_single_fn:
+            # 用 job_name 作为查询条件，后端会按工种模糊匹配拉取企业
+            classify_single_fn(f"job_name:{req.job_name}", task_id, req.pt)
+        return {"task_id": task_id, "message": f"按工种批量分类已提交: {req.job_name}", "status": "accepted"}
 
     @router.get("/classify/status/{task_id}")
     def get_classify_status(task_id: str, _user=Depends(require_auth)):

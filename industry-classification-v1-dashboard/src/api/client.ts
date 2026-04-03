@@ -1,4 +1,7 @@
 import type {
+  AdminAuthAudit,
+  AdminOverview,
+  AccessSettings,
   AnnotationRequest,
   AnnotationResponse,
   AuthSession,
@@ -91,6 +94,18 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export const api = {
   getAuthSession: () => request<AuthSession>('/auth/session'),
 
+  getAdminOverview: () => request<AdminOverview>('/admin/overview'),
+
+  getAdminAuthAudit: () => request<AdminAuthAudit>('/admin/auth-audit'),
+
+  getAccessSettings: () => request<AccessSettings>('/admin/access-settings'),
+
+  updateAccessSettings: (settings: AccessSettings) =>
+    request<AccessSettings>('/admin/access-settings', {
+      method: 'PUT',
+      body: JSON.stringify(toSnakeCase(settings)),
+    }),
+
   getLoginUrl: (next = '/') => `${BASE_URL}/auth/login?next=${encodeURIComponent(next)}`,
 
   logout: () =>
@@ -99,6 +114,8 @@ export const api = {
     }),
 
   getStats: () => request<StatsResponse>('/stats'),
+
+  getAnnotations: () => request<Record<string, unknown>[]>('/annotations'),
 
   getRuns: (offset = 0, limit = 20) =>
     request<PaginatedResponse<RunSummary>>(
@@ -156,6 +173,12 @@ export const api = {
     request<{ taskId: string; message: string; status: string }>('/classify/single', {
       method: 'POST',
       body: JSON.stringify({ query, pt: pt || '' }),
+    }),
+
+  classifyByJobName: (jobName: string, pt?: string) =>
+    request<{ taskId: string; message: string; status: string }>('/classify/by-job-name', {
+      method: 'POST',
+      body: JSON.stringify({ job_name: jobName, pt: pt || '' }),
     }),
 
   getClassifyStatus: (taskId: string) =>

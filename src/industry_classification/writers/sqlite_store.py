@@ -81,6 +81,7 @@ class SqliteResultStore:
                     entity_key text not null,
                     annotated_label text not null,
                     reviewer_notes text not null default '',
+                    reviewer_name text not null default '',
                     created_at text not null default current_timestamp
                 );
 
@@ -251,6 +252,7 @@ class SqliteResultStore:
         entity_key: str,
         annotated_label: str,
         reviewer_notes: str,
+        reviewer_name: str = "",
     ) -> None:
         with self._lock:
             count = self._conn.execute(
@@ -265,10 +267,11 @@ class SqliteResultStore:
                     run_id,
                     entity_key,
                     annotated_label,
-                    reviewer_notes
-                ) values (?, ?, ?, ?)
+                    reviewer_notes,
+                    reviewer_name
+                ) values (?, ?, ?, ?, ?)
                 """,
-                (run_id, entity_key, annotated_label, reviewer_notes),
+                (run_id, entity_key, annotated_label, reviewer_notes, reviewer_name),
             )
             self._conn.commit()
 

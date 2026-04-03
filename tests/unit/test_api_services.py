@@ -81,10 +81,10 @@ class TestStatsService:
     def test_counts(self, formal_store, fallback_store):
         svc = StatsService(formal_store, fallback_store)
         stats = svc.get_stats()
-        assert stats.formal_count == 2
-        assert stats.fallback_count == 1
+        assert stats.annotated_count == 0
+        assert stats.unannotated_count == 3
         assert stats.total_processed == 3
-        assert stats.cache_hit_rate == 0.0
+        assert isinstance(stats.label_distribution, dict)
 
     def test_empty_stores(self):
         svc = StatsService({}, {})
@@ -265,6 +265,52 @@ class TestSettingsService:
         assert "WORKER_COUNT=8" in content
         assert "LLM_MODEL=qwen3-max" in content
 
+    def test_get_access_settings(self, tmp_path: Path):
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            "FEISHU_ALLOWED_OPEN_IDS=ou_a,ou_b\n"
+            "FEISHU_ALLOWED_EMAILS=ops@example.com,biz@example.com\n"
+            "FEISHU_ADMIN_OPEN_IDS=ou_admin\n"
+            "FEISHU_ADMIN_EMAILS=admin@example.com\n",
+            encoding="utf-8",
+        )
+
+        svc = SettingsService(env_path=env_file)
+
+        access = svc.get_access_settings()
+
+        assert access.allowed_open_ids == ["ou_a", "ou_b"]
+        assert access.allowed_emails == ["ops@example.com", "biz@example.com"]
+        assert access.admin_open_ids == ["ou_admin"]
+        assert access.admin_emails == ["admin@example.com"]
+
+    def test_update_access_settings_normalizes_and_persists(self, tmp_path: Path):
+        env_file = tmp_path / ".env"
+        env_file.write_text("", encoding="utf-8")
+
+        svc = SettingsService(env_path=env_file)
+        from industry_classification.api.schemas import AccessSettingsUpdate
+
+        updated = svc.update_access_settings(
+            AccessSettingsUpdate(
+                allowed_open_ids=[" ou_a ", "", "ou_b"],
+                allowed_emails=[" Admin@Example.com ", " ", "ops@example.com"],
+                admin_open_ids=[" ou_admin "],
+                admin_emails=[" Owner@Example.com "],
+            )
+        )
+
+        assert updated.allowed_open_ids == ["ou_a", "ou_b"]
+        assert updated.allowed_emails == ["admin@example.com", "ops@example.com"]
+        assert updated.admin_open_ids == ["ou_admin"]
+        assert updated.admin_emails == ["owner@example.com"]
+
+        content = env_file.read_text(encoding="utf-8")
+        assert "FEISHU_ALLOWED_OPEN_IDS=ou_a,ou_b" in content
+        assert "FEISHU_ALLOWED_EMAILS=admin@example.com,ops@example.com" in content
+        assert "FEISHU_ADMIN_OPEN_IDS=ou_admin" in content
+        assert "FEISHU_ADMIN_EMAILS=owner@example.com" in content
+
 
 class SequenceLLMClient:
     def __init__(self, responses: dict[str, str]):
@@ -307,9 +353,9 @@ class TestSqliteBackedServices:
     def test_stats_service_prefers_sqlite(self, sqlite_output: Path):
         svc = StatsService({}, {}, sqlite_path=sqlite_output)
         stats = svc.get_stats()
-        assert stats.formal_count == 1
-        assert stats.fallback_count == 1
         assert stats.total_processed == 2
+        assert stats.annotated_count == 0
+        assert stats.unannotated_count == 2
 
     def test_run_service_reads_from_sqlite(self, sqlite_output: Path):
         svc = RunService({}, {}, sqlite_path=sqlite_output)

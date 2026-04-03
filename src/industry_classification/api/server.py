@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from industry_classification.api.auth import FeishuAuthService, load_feishu_auth_settings
+from industry_classification.api.auth import AuthAuditStore, FeishuAuthService, load_feishu_auth_settings
 from industry_classification.api.routes import create_router
 from industry_classification.api.services import (
     FallbackService,
@@ -96,7 +96,7 @@ def create_app(output_dir: Path | None = None) -> FastAPI:
     taxonomy_svc = TaxonomyService()
     settings_svc = SettingsService()
     auth_settings = load_feishu_auth_settings()
-    auth_svc = FeishuAuthService(auth_settings)
+    auth_svc = FeishuAuthService(auth_settings, audit_store=AuthAuditStore(sqlite_path))
 
     # -- batch trigger (background thread) --------------------------------
     def batch_trigger_fn(req, task_id: str) -> None:

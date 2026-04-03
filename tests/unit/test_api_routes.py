@@ -10,6 +10,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from industry_classification.api.auth import FeishuAuthService
 from industry_classification.api.routes import create_router
 from industry_classification.api.services import (
     FallbackService,
@@ -19,6 +20,15 @@ from industry_classification.api.services import (
     StatsService,
     TaxonomyService,
 )
+
+
+class _NoOpAuth(FeishuAuthService):
+    """Auth service that skips authentication for tests."""
+    def require_user(self, request):
+        return None
+
+    def require_admin(self, request):
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +92,7 @@ def client(formal_store, fallback_store) -> TestClient:
         fallback_service=FallbackService(formal_store, fallback_store),
         taxonomy_service=TaxonomyService(),
         settings_service=SettingsService(),
+        auth_service=_NoOpAuth(),
     )
     app.include_router(router, prefix="/api")
     return TestClient(app)
@@ -98,8 +109,8 @@ class TestGetStats:
         assert resp.status_code == 200
         data = resp.json()
         assert data["total_processed"] == 3
-        assert data["formal_count"] == 2
-        assert data["fallback_count"] == 1
+        assert "annotated_count" in data
+        assert "unannotated_count" in data
 
 
 # ---------------------------------------------------------------------------

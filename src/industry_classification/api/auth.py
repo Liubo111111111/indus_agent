@@ -4,15 +4,151 @@ import base64
 import hashlib
 import hmac
 import json
+import sqlite3
+import threading
 import time
+from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, urlsplit
 
 import httpx
 from fastapi import HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from industry_classification.settings import _env_get
+
+
+class AuthAuditStore:
+    def __init__(self, path: str | Path | None = None) -> None:
+        self._lock = threading.Lock()
+        if path is None:
+            self._conn = sqlite3.connect(":memory:", check_same_thread=False)
+        else:
+            sqlite_path = Path(path)
+            sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+            self._conn = sqlite3.connect(sqlite_path, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+        self._ensure_schema()
+
+    def _ensure_schema(self) -> None:
+        with self._lock:
+            self._conn.executescript(
+                """
+                create table if not exists auth_events (
+                    id integer primary key autoincrement,
+                    event_type text not null,
+                    open_id text not null,
+                    name text not null default '',
+                    email text not null default '',
+                    enterprise_email text not null default '',
+                    user_id text not null default '',
+                    tenant_key text not null default '',
+                    is_admin integer not null default 0,
+                    created_at text not null default current_timestamp
+                );
+
+                create index if not exists idx_auth_events_open_id
+                on auth_events (open_id);
+                """
+            )
+            self._conn.commit()
+
+    def record_event(self, event_type: str, user: "FeishuUser", is_admin: bool) -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                insert into auth_events (
+                    event_type,
+                    open_id,
+                    name,
+                    email,
+                    enterprise_email,
+                    user_id,
+                    tenant_key,
+                    is_admin
+                ) values (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event_type,
+                    user.open_id,
+                    user.name,
+                    user.email,
+                    user.enterprise_email,
+                    user.user_id,
+                    user.tenant_key,
+                    1 if is_admin else 0,
+                ),
+            )
+            self._conn.commit()
+
+    def list_recent_events(self, limit: int = 20) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                select event_type, open_id, name, email, enterprise_email, user_id, tenant_key, is_admin, created_at
+                from auth_events
+                order by id desc
+                limit ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "event_type": row["event_type"],
+                "open_id": row["open_id"],
+                "name": row["name"],
+                "email": row["email"],
+                "enterprise_email": row["enterprise_email"],
+                "user_id": row["user_id"],
+                "tenant_key": row["tenant_key"],
+                "is_admin": bool(row["is_admin"]),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+
+    def list_recent_users(self, limit: int = 20) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                select
+                    latest.open_id,
+                    latest.name,
+                    latest.email,
+                    latest.enterprise_email,
+                    latest.user_id,
+                    latest.tenant_key,
+                    latest.is_admin,
+                    latest.event_type as last_event_type,
+                    latest.created_at as last_event_at,
+                    summary.event_count
+                from auth_events latest
+                join (
+                    select open_id, max(id) as last_id, count(*) as event_count
+                    from auth_events
+                    group by open_id
+                ) summary
+                  on latest.id = summary.last_id
+                order by latest.id desc
+                limit ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "open_id": row["open_id"],
+                "name": row["name"],
+                "email": row["email"],
+                "enterprise_email": row["enterprise_email"],
+                "user_id": row["user_id"],
+                "tenant_key": row["tenant_key"],
+                "is_admin": bool(row["is_admin"]),
+                "last_event_type": row["last_event_type"],
+                "last_event_at": row["last_event_at"],
+                "event_count": row["event_count"],
+            }
+            for row in rows
+        ]
 
 
 class FeishuUser(BaseModel):
@@ -47,6 +183,8 @@ class FeishuAuthSettings(BaseModel):
     cookie_domain: str = ""
     allowed_emails: list[str] = Field(default_factory=list)
     allowed_open_ids: list[str] = Field(default_factory=list)
+    admin_emails: list[str] = Field(default_factory=list)
+    admin_open_ids: list[str] = Field(default_factory=list)
 
 
 def load_feishu_auth_settings() -> FeishuAuthSettings:
@@ -64,6 +202,8 @@ def load_feishu_auth_settings() -> FeishuAuthSettings:
         cookie_domain=_env_get("FEISHU_COOKIE_DOMAIN", ""),
         allowed_emails=[item.strip().lower() for item in _env_get("FEISHU_ALLOWED_EMAILS", "").split(",") if item.strip()],
         allowed_open_ids=[item.strip() for item in _env_get("FEISHU_ALLOWED_OPEN_IDS", "").split(",") if item.strip()],
+        admin_emails=[item.strip().lower() for item in _env_get("FEISHU_ADMIN_EMAILS", "").split(",") if item.strip()],
+        admin_open_ids=[item.strip() for item in _env_get("FEISHU_ADMIN_OPEN_IDS", "").split(",") if item.strip()],
     )
 
 
@@ -72,9 +212,11 @@ class FeishuAuthService:
         self,
         settings: FeishuAuthSettings | None = None,
         http_client: httpx.Client | None = None,
+        audit_store: AuthAuditStore | None = None,
     ) -> None:
         self._settings = settings or load_feishu_auth_settings()
         self._http_client = http_client
+        self._audit_store = audit_store or AuthAuditStore()
         self._revoked_session_ids: set[str] = set()
 
     @property
@@ -223,19 +365,104 @@ class FeishuAuthService:
 
     def require_user(self, request: Request) -> FeishuUser | None:
         if not self.enabled:
-            return None
+            raise HTTPException(status_code=503, detail="Feishu auth is not configured")
         user = self.get_current_user(request)
         if user is None:
             raise HTTPException(status_code=401, detail="Authentication required")
         return user
 
+    def require_admin(self, request: Request) -> FeishuUser:
+        user = self.require_user(request)
+        if not self.is_admin(user):
+            raise HTTPException(status_code=403, detail="Admin access required")
+        return user
+
+    def is_admin(self, user: FeishuUser | None) -> bool:
+        if user is None:
+            return False
+        has_admin_open_ids = bool(self._settings.admin_open_ids)
+        has_admin_emails = bool(self._settings.admin_emails)
+        if not has_admin_open_ids and not has_admin_emails:
+            return True
+        if has_admin_open_ids and user.open_id in self._settings.admin_open_ids:
+            return True
+        if has_admin_emails:
+            email_candidates = {
+                user.email.strip().lower(),
+                user.enterprise_email.strip().lower(),
+            }
+            if any(email and email in self._settings.admin_emails for email in email_candidates):
+                return True
+        return False
+
     def get_session_payload(self, request: Request) -> dict[str, Any]:
         user = self.get_current_user(request)
+        user_payload = None
+        if user is not None:
+            user_payload = user.model_dump()
+            user_payload["is_admin"] = self.is_admin(user)
         return {
             "enabled": self.enabled,
             "authenticated": user is not None,
-            "user": user.model_dump() if user is not None else None,
+            "user": user_payload,
             "login_url": self.build_login_url("/") if self.enabled else None,
+        }
+
+    def get_admin_overview_payload(self) -> dict[str, Any]:
+        frontend = self._settings.frontend_base_url
+        redirect = self._settings.redirect_uri
+        frontend_host = urlsplit(frontend).hostname or ""
+        redirect_host = urlsplit(redirect).hostname or ""
+        host_consistent = bool(frontend_host and redirect_host and frontend_host == redirect_host)
+        warnings: list[str] = []
+        if frontend_host and redirect_host and frontend_host != redirect_host:
+            warnings.append("前端访问域名与飞书回调域名不一致，可能导致登录后会话无法共享。")
+        if not self._settings.session_secret.strip():
+            warnings.append("FEISHU_SESSION_SECRET 为空，认证会被视为未配置。")
+        has_admin_allowlist = bool(self._settings.admin_open_ids or self._settings.admin_emails)
+        has_access_allowlist = bool(self._settings.allowed_open_ids or self._settings.allowed_emails)
+        return {
+            "auth_enabled": self.enabled,
+            "admin_mode": "allowlist" if has_admin_allowlist else "open_admin",
+            "access_scope": "restricted" if has_access_allowlist else "all_authenticated",
+            "frontend_base_url": frontend,
+            "redirect_uri": redirect,
+            "host_consistent": host_consistent,
+            "allowed_open_id_count": len(self._settings.allowed_open_ids),
+            "allowed_email_count": len(self._settings.allowed_emails),
+            "admin_open_id_count": len(self._settings.admin_open_ids),
+            "admin_email_count": len(self._settings.admin_emails),
+            "warnings": warnings,
+        }
+
+    def get_access_settings_payload(self) -> dict[str, Any]:
+        return {
+            "allowed_open_ids": list(self._settings.allowed_open_ids),
+            "allowed_emails": list(self._settings.allowed_emails),
+            "admin_open_ids": list(self._settings.admin_open_ids),
+            "admin_emails": list(self._settings.admin_emails),
+        }
+
+    def apply_access_settings(
+        self,
+        *,
+        allowed_open_ids: list[str],
+        allowed_emails: list[str],
+        admin_open_ids: list[str],
+        admin_emails: list[str],
+    ) -> None:
+        self._settings.allowed_open_ids = list(allowed_open_ids)
+        self._settings.allowed_emails = list(allowed_emails)
+        self._settings.admin_open_ids = list(admin_open_ids)
+        self._settings.admin_emails = list(admin_emails)
+
+    def record_auth_event(self, event_type: str, user: FeishuUser) -> None:
+        self._audit_store.record_event(event_type, user, self.is_admin(user))
+
+    def get_auth_audit_payload(self, event_limit: int = 20, user_limit: int = 20) -> dict[str, Any]:
+        return {
+            "events": self._audit_store.list_recent_events(event_limit),
+            "users": self._audit_store.list_recent_users(user_limit),
         }
 
     def build_frontend_redirect(self, next_path: str) -> str:

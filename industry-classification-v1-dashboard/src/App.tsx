@@ -38,9 +38,13 @@ import {
   BrainCircuit,
   Tag,
   LogOut,
+  ChevronDown,
 } from 'lucide-react';
 import { api } from './api/client';
 import type {
+  AdminAuthAudit,
+  AdminOverview,
+  AccessSettings,
   AuthSession,
   StatsResponse,
   RunSummary,
@@ -52,6 +56,7 @@ import type {
   TaxonomyResponse,
   SettingsResponse,
 } from './api/types';
+import { JOB_NAMES } from './job_names';
 
 // --- Taxonomy Icon Map ---
 const TAXONOMY_ICON_MAP: Record<string, { icon: any; color: string; bg: string }> = {
@@ -267,6 +272,7 @@ const AnnotationDialog = ({
   runId,
   currentLabel,
   currentNotes = '',
+  reviewerName = '',
   taxonomyLabels,
   showToast,
 }: {
@@ -275,6 +281,7 @@ const AnnotationDialog = ({
   runId: string;
   currentLabel: string;
   currentNotes?: string;
+  reviewerName?: string;
   taxonomyLabels: TaxonomyLabel[];
   showToast: (msg: string, isError?: boolean) => void;
 }) => {
@@ -293,7 +300,7 @@ const AnnotationDialog = ({
     if (!selectedLabel) return;
     setSubmitting(true);
     try {
-      await api.submitAnnotation(runId, { annotatedLabel: selectedLabel, reviewerNotes });
+      await api.submitAnnotation(runId, { annotatedLabel: selectedLabel, reviewerNotes, reviewerName });
       showToast('标注提交成功');
       onClose(true);
     } catch (e: any) {
@@ -363,11 +370,13 @@ const DetailView = ({
   onBack,
   showToast,
   taxonomyLabels,
+  currentUserName = '',
 }: {
   runId: string;
   onBack: () => void;
   showToast: (msg: string, isError?: boolean) => void;
   taxonomyLabels: TaxonomyLabel[];
+  currentUserName?: string;
 }) => {
   const [run, setRun] = useState<RunDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -713,12 +722,14 @@ const DetailView = ({
                     const label = resolveLabel((ann.annotatedLabel || ann.annotated_label || '') as string);
                     const notes = (ann.reviewerNotes || ann.reviewer_notes || '') as string;
                     const createdAt = (ann.createdAt || ann.created_at || '') as string;
+                    const reviewer = (ann.reviewerName || ann.reviewer_name || '') as string;
                     return (
                       <div key={i} className="bg-sky-50/60 border border-sky-100 rounded-lg p-3 space-y-1.5">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <span className="text-xs text-slate-400">第 {i + 1} 次标注</span>
                             <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-sky-100 text-sky-700 border border-sky-200">{label}</span>
+                            {reviewer && <span className="text-xs text-slate-500">by {reviewer}</span>}
                           </div>
                           <span className="text-[10px] text-slate-400 font-mono">{createdAt}</span>
                         </div>
@@ -749,6 +760,7 @@ const DetailView = ({
             runId={run.runId}
             currentLabel={finalLabel}
             currentNotes={''}
+            reviewerName={currentUserName}
             taxonomyLabels={taxonomyLabels}
             showToast={showToast}
           />
@@ -761,7 +773,7 @@ const DetailView = ({
 
 // --- Main App Component ---
 export default function App() {
-  // Navigation: dashboard | review-list | taxonomy | settings
+  // Navigation: classify | review-list | dashboard | admin-home | taxonomy | settings
   const [activeTab, setActiveTab] = useState('classify');
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -775,6 +787,10 @@ export default function App() {
   const [statsLoading, setStatsLoading] = useState(true);
   const [statsError, setStatsError] = useState<string | null>(null);
 
+  // Annotation archive
+  const [annotationArchive, setAnnotationArchive] = useState<Record<string, unknown>[]>([]);
+  const [archiveLoading, setArchiveLoading] = useState(false);
+
   // Runs (used by 分类审核台)
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [runsTotal, setRunsTotal] = useState(0);
@@ -782,7 +798,8 @@ export default function App() {
   const [runsLoading, setRunsLoading] = useState(true);
   const [runsError, setRunsError] = useState<string | null>(null);
   const [runsLoadingMore, setRunsLoadingMore] = useState(false);
-  const [runsFilter, setRunsFilter] = useState<'all' | 'formal' | 'fallback'>('all');
+  const [runsFilter, setRunsFilter] = useState<'all' | 'annotated' | 'unannotated'>('all');
+  const [labelFilter, setLabelFilter] = useState<string | null>(null);
   const RUNS_LIMIT = 20;
 
   // Search
@@ -793,6 +810,8 @@ export default function App() {
   const [searchNoResults, setSearchNoResults] = useState(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRef = useRef<HTMLDivElement>(null);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
 
   // Batch dialog
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
@@ -800,6 +819,9 @@ export default function App() {
   // Classify (发起分类)
   const [classifyMode, setClassifyMode] = useState<'single' | 'batch'>('single');
   const [classifyQuery, setClassifyQuery] = useState('');
+  const [classifyJobName, setClassifyJobName] = useState('');
+  const [jobNameDropdownOpen, setJobNameDropdownOpen] = useState(false);
+  const [classifyBatchMode, setClassifyBatchMode] = useState<'job' | 'csv'>('job');
   const [classifyPt, setClassifyPt] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() - 1);
     return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
@@ -828,6 +850,22 @@ export default function App() {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [prompts, setPrompts] = useState<Record<string, any> | null>(null);
   const [promptsLoading, setPromptsLoading] = useState(true);
+  const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
+  const [adminOverviewLoading, setAdminOverviewLoading] = useState(false);
+  const [adminOverviewError, setAdminOverviewError] = useState<string | null>(null);
+  const [accessSettings, setAccessSettings] = useState<AccessSettings | null>(null);
+  const [accessSettingsLoading, setAccessSettingsLoading] = useState(false);
+  const [accessSettingsError, setAccessSettingsError] = useState<string | null>(null);
+  const [accessSettingsSaving, setAccessSettingsSaving] = useState(false);
+  const [accessSettingsForm, setAccessSettingsForm] = useState<Record<string, string>>({
+    allowedOpenIds: '',
+    allowedEmails: '',
+    adminOpenIds: '',
+    adminEmails: '',
+  });
+  const [authAudit, setAuthAudit] = useState<AdminAuthAudit | null>(null);
+  const [authAuditLoading, setAuthAuditLoading] = useState(false);
+  const [authAuditError, setAuthAuditError] = useState<string | null>(null);
 
   const showToast = (msg: string, isError = false) => {
     setToastMessage(msg);
@@ -848,12 +886,15 @@ export default function App() {
     fetchAuthSession();
   }, [fetchAuthSession]);
 
-  const authReady = !authLoading && (!authSession?.enabled || authSession.authenticated);
+  const authReady = !authLoading && !!authSession?.enabled && authSession.authenticated;
+  const isAdmin = !!authSession?.user?.isAdmin;
 
   // --- Data Fetching ---
   const fetchStats = useCallback(() => {
     setStatsLoading(true); setStatsError(null);
     api.getStats().then(setStats).catch(e => setStatsError(e.message)).finally(() => setStatsLoading(false));
+    setArchiveLoading(true);
+    api.getAnnotations().then(setAnnotationArchive).catch(() => {}).finally(() => setArchiveLoading(false));
   }, []);
 
   const fetchRuns = useCallback((offset = 0, append = false) => {
@@ -896,14 +937,59 @@ export default function App() {
       .finally(() => setSettingsLoading(false));
   }, []);
 
+  const fetchAdminOverview = useCallback(() => {
+    setAdminOverviewLoading(true);
+    setAdminOverviewError(null);
+    api.getAdminOverview()
+      .then(setAdminOverview)
+      .catch(e => setAdminOverviewError(e.message || '无法加载管理后台概览'))
+      .finally(() => setAdminOverviewLoading(false));
+  }, []);
+
+  const toTextareaValue = (items: string[]) => items.join('\n');
+
+  const fetchAccessSettings = useCallback(() => {
+    setAccessSettingsLoading(true);
+    setAccessSettingsError(null);
+    api.getAccessSettings()
+      .then((data) => {
+        setAccessSettings(data);
+        setAccessSettingsForm({
+          allowedOpenIds: toTextareaValue(data.allowedOpenIds),
+          allowedEmails: toTextareaValue(data.allowedEmails),
+          adminOpenIds: toTextareaValue(data.adminOpenIds),
+          adminEmails: toTextareaValue(data.adminEmails),
+        });
+      })
+      .catch(e => setAccessSettingsError(e.message || '无法加载权限配置'))
+      .finally(() => setAccessSettingsLoading(false));
+  }, []);
+
+  const fetchAuthAudit = useCallback(() => {
+    setAuthAuditLoading(true);
+    setAuthAuditError(null);
+    api.getAdminAuthAudit()
+      .then(setAuthAudit)
+      .catch(e => setAuthAuditError(e.message || '无法加载登录审计'))
+      .finally(() => setAuthAuditLoading(false));
+  }, []);
+
   // Load data on tab change
   useEffect(() => {
     if (!authReady) return;
     if (activeTab === 'dashboard') { fetchStats(); }
     if (activeTab === 'review-list') { fetchRuns(0); fetchTaxonomy(); }
-    if (activeTab === 'taxonomy') { fetchTaxonomy(); }
-    if (activeTab === 'settings') { fetchSettings(); api.getPrompts().then(setPrompts).catch(() => {}).finally(() => setPromptsLoading(false)); }
-  }, [activeTab, authReady, fetchStats, fetchRuns, fetchTaxonomy, fetchSettings]);
+    if (isAdmin && activeTab === 'admin-home') { fetchAdminOverview(); fetchAccessSettings(); fetchAuthAudit(); }
+    if (isAdmin && activeTab === 'taxonomy') { fetchTaxonomy(); }
+    if (isAdmin && activeTab === 'settings') { fetchSettings(); api.getPrompts().then(setPrompts).catch(() => {}).finally(() => setPromptsLoading(false)); }
+  }, [activeTab, authReady, fetchAccessSettings, fetchAdminOverview, fetchAuthAudit, fetchStats, fetchRuns, fetchTaxonomy, fetchSettings, isAdmin]);
+
+  useEffect(() => {
+    if (!authReady || isAdmin) return;
+    if (activeTab === 'admin-home' || activeTab === 'taxonomy' || activeTab === 'settings') {
+      setActiveTab('dashboard');
+    }
+  }, [activeTab, authReady, isAdmin]);
 
   // Search debounce
   useEffect(() => {
@@ -924,6 +1010,7 @@ export default function App() {
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) setSearchOpen(false);
+      if (accountMenuRef.current && !accountMenuRef.current.contains(e.target as Node)) setAccountMenuOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -959,7 +1046,18 @@ export default function App() {
   const handleLoadMore = () => { fetchRuns(runsOffset, true); };
 
   // Filtered runs for 分类审核台
-  const filteredRuns = runsFilter === 'all' ? runs : runs.filter(r => r.route === runsFilter);
+  const filteredRuns = (() => {
+    let result = runsFilter === 'all' ? runs
+      : runsFilter === 'annotated' ? runs.filter(r => (r.annotations || []).length > 0)
+      : runs.filter(r => (r.annotations || []).length === 0);
+    if (labelFilter) {
+      result = result.filter(r => {
+        const raw = r.finalLabel || '';
+        return raw === labelFilter || resolveLabelName(raw) === labelFilter;
+      });
+    }
+    return result;
+  })();
 
   // Settings validation + save
   const validateSettings = (): boolean => {
@@ -1008,11 +1106,43 @@ export default function App() {
     }
   };
 
+  const parseTextareaItems = (value: string) =>
+    value
+      .split('\n')
+      .map(item => item.trim())
+      .filter(Boolean);
+
+  const handleSaveAccessSettings = async () => {
+    setAccessSettingsSaving(true);
+    try {
+      const updated = await api.updateAccessSettings({
+        allowedOpenIds: parseTextareaItems(accessSettingsForm.allowedOpenIds),
+        allowedEmails: parseTextareaItems(accessSettingsForm.allowedEmails),
+        adminOpenIds: parseTextareaItems(accessSettingsForm.adminOpenIds),
+        adminEmails: parseTextareaItems(accessSettingsForm.adminEmails),
+      });
+      const session = await api.getAuthSession();
+      setAccessSettings(updated);
+      setAuthSession(session);
+      setAccessSettingsForm({
+        allowedOpenIds: toTextareaValue(updated.allowedOpenIds),
+        allowedEmails: toTextareaValue(updated.allowedEmails),
+        adminOpenIds: toTextareaValue(updated.adminOpenIds),
+        adminEmails: toTextareaValue(updated.adminEmails),
+      });
+      fetchAdminOverview();
+      showToast('权限配置已更新并立即生效');
+    } catch (e: any) {
+      showToast(e.message || '权限配置保存失败', true);
+    } finally {
+      setAccessSettingsSaving(false);
+    }
+  };
+
   const statsCards = stats ? [
     { label: '已处理总数', value: stats.totalProcessed.toLocaleString(), icon: Database, color: 'text-blue-600', bg: 'bg-blue-100' },
-    { label: '正式输出', value: stats.formalCount.toLocaleString(), icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-100' },
-    { label: '待审核', value: stats.fallbackCount.toLocaleString(), icon: ShieldAlert, color: 'text-amber-600', bg: 'bg-amber-100' },
-    { label: '缓存命中率', value: `${(stats.cacheHitRate * 100).toFixed(1)}%`, icon: Zap, color: 'text-purple-600', bg: 'bg-purple-100' },
+    { label: '未标注', value: stats.unannotatedCount.toLocaleString(), icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100' },
+    { label: '已标注', value: stats.annotatedCount.toLocaleString(), icon: Tag, color: 'text-sky-600', bg: 'bg-sky-100' },
   ] : [];
 
   const settingsFields = [
@@ -1043,6 +1173,15 @@ export default function App() {
     );
   }
 
+  if (authSession && !authSession.enabled) {
+    return (
+      <FullScreenState
+        title="飞书认证未配置"
+        description="当前环境没有启用飞书企业登录，所以系统不会放行进入操作台。请先在后端 .env 中补齐 FEISHU_AUTH_ENABLED、FEISHU_APP_ID、FEISHU_APP_SECRET、FEISHU_REDIRECT_URI、FEISHU_SESSION_SECRET 和 FRONTEND_BASE_URL。"
+      />
+    );
+  }
+
   if (authSession?.enabled && !authSession.authenticated) {
     const currentPath = typeof window !== 'undefined'
       ? `${window.location.pathname}${window.location.search}`
@@ -1067,6 +1206,23 @@ export default function App() {
 
   const authUserName = authSession?.user?.name || '已登录用户';
   const authInitials = authUserName.slice(0, 2).toUpperCase();
+  const authAvatarUrl = authSession?.user?.avatarUrl || '';
+  const authOpenId = authSession?.user?.openId || '';
+  const authUserId = authSession?.user?.userId || '';
+  const authEmail = authSession?.user?.enterpriseEmail || authSession?.user?.email || '';
+  const authTenantKey = authSession?.user?.tenantKey || '';
+  const authRoleLabel = isAdmin ? '管理员' : '业务账号';
+  const authRoleBadgeClass = isAdmin
+    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+    : 'bg-slate-100 text-slate-600 border-slate-200';
+  const adminModeLabel = adminOverview?.adminMode === 'allowlist' ? '白名单管理员' : '默认管理员';
+  const accessScopeLabel = adminOverview?.accessScope === 'restricted' ? '访问受限' : '所有登录用户可访问';
+  const formatAuditTime = (value?: string) => {
+    if (!value) return '-';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString('zh-CN', { hour12: false });
+  };
 
   const handleLogout = async () => {
     try {
@@ -1075,6 +1231,8 @@ export default function App() {
       setSelectedRun(null);
       setSearchQuery('');
       setSearchResults([]);
+      setAccountMenuOpen(false);
+      await fetchAuthSession();
       showToast('已退出登录');
     } catch (e: any) {
       showToast(e.message || '退出登录失败', true);
@@ -1120,9 +1278,14 @@ export default function App() {
           <SidebarItem icon={ClipboardList} label="分类审核台" active={activeTab === 'review-list' || !!selectedRun} onClick={() => { setActiveTab('review-list'); setSelectedRun(null); }} />
           <SidebarItem icon={LayoutDashboard} label="数据汇总" active={activeTab === 'dashboard' && !selectedRun} onClick={() => { setActiveTab('dashboard'); setSelectedRun(null); }} />
 
-          <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 px-4 mt-8">配置管理</div>
-          <SidebarItem icon={FileText} label="行业标签配置" active={activeTab === 'taxonomy'} onClick={() => { setActiveTab('taxonomy'); setSelectedRun(null); }} />
-          <SidebarItem icon={Settings} label="系统设置" active={activeTab === 'settings'} onClick={() => { setActiveTab('settings'); setSelectedRun(null); }} />
+          {isAdmin && (
+            <>
+              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 px-4 mt-8">管理后台</div>
+              <SidebarItem icon={ShieldAlert} label="后台总览" active={activeTab === 'admin-home' || activeTab === 'taxonomy' || activeTab === 'settings'} onClick={() => { setActiveTab('admin-home'); setSelectedRun(null); }} />
+              <SidebarItem icon={FileText} label="行业标签配置" active={activeTab === 'taxonomy'} onClick={() => { setActiveTab('taxonomy'); setSelectedRun(null); }} />
+              <SidebarItem icon={Settings} label="系统设置" active={activeTab === 'settings'} onClick={() => { setActiveTab('settings'); setSelectedRun(null); }} />
+            </>
+          )}
         </div>
 
         <div className="p-4 border-t border-slate-800">
@@ -1143,6 +1306,7 @@ export default function App() {
                activeTab === 'dashboard' ? '数据汇总' :
                activeTab === 'review-list' ? '分类审核台' :
                activeTab === 'classify' ? '发起分类' :
+               activeTab === 'admin-home' ? '管理后台' :
                activeTab === 'taxonomy' ? '行业标签配置' :
                '系统设置'}
             </h1>
@@ -1187,21 +1351,118 @@ export default function App() {
               <Bell size={20} />
               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
             </button>
-            <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-tr from-indigo-100 to-blue-100 border border-blue-200 text-blue-700 font-semibold text-sm">
-                {authInitials}
-              </div>
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-slate-800">{authUserName}</div>
-                <div className="truncate text-xs text-slate-400">{authSession?.user?.enterpriseEmail || authSession?.user?.email || '飞书企业账号'}</div>
-              </div>
+            <div className="relative" ref={accountMenuRef}>
               <button
-                onClick={handleLogout}
-                className="inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                onClick={() => setAccountMenuOpen(prev => !prev)}
+                className={`flex items-center gap-3 rounded-2xl border bg-white px-3 py-2 shadow-sm transition-all ${
+                  accountMenuOpen
+                    ? 'border-blue-300 shadow-md shadow-blue-100'
+                    : 'border-slate-200 hover:border-slate-300 hover:shadow-md'
+                }`}
               >
-                <LogOut size={14} />
-                退出
+                {authAvatarUrl ? (
+                  <img
+                    src={authAvatarUrl}
+                    alt={authUserName}
+                    className="h-10 w-10 rounded-full border border-blue-200 object-cover"
+                  />
+                ) : (
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-tr from-indigo-100 to-blue-100 border border-blue-200 text-blue-700 font-semibold text-sm">
+                    {authInitials}
+                  </div>
+                )}
+                <div className="min-w-0 text-left">
+                  <div className="flex items-center gap-2">
+                    <div className="truncate text-sm font-semibold text-slate-800">{authUserName}</div>
+                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${authRoleBadgeClass}`}>
+                      {authRoleLabel}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 truncate text-[11px] text-slate-400">
+                    {authOpenId ? `飞书ID ${authOpenId}` : (authEmail || '飞书企业账号')}
+                  </div>
+                </div>
+                <ChevronDown
+                  size={16}
+                  className={`shrink-0 text-slate-400 transition-transform ${accountMenuOpen ? 'rotate-180' : ''}`}
+                />
               </button>
+
+              <AnimatePresence>
+                {accountMenuOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                    className="absolute right-0 top-full z-50 mt-3 w-[360px] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/10"
+                  >
+                    <div className="bg-[linear-gradient(135deg,#eff6ff_0%,#ffffff_65%)] px-5 py-5">
+                      <div className="flex items-start gap-4">
+                        {authAvatarUrl ? (
+                          <img
+                            src={authAvatarUrl}
+                            alt={authUserName}
+                            className="h-14 w-14 rounded-2xl border border-blue-200 object-cover shadow-sm"
+                          />
+                        ) : (
+                          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-indigo-100 to-blue-100 border border-blue-200 text-blue-700 font-bold">
+                            {authInitials}
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="text-base font-semibold text-slate-900">{authUserName}</div>
+                          <div className="mt-1 text-xs text-slate-500">飞书企业登录会话</div>
+                          <div className="mt-3">
+                            <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${authRoleBadgeClass}`}>
+                              {authRoleLabel}
+                            </span>
+                          </div>
+                          {authEmail && (
+                            <div className="mt-3 inline-flex max-w-full rounded-xl bg-white/80 px-2.5 py-1 text-xs text-blue-700 ring-1 ring-blue-100">
+                              <span className="truncate">{authEmail}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 px-5 py-4">
+                      <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">权限角色</div>
+                        <div className="mt-1 text-xs font-semibold text-slate-700">{authRoleLabel}</div>
+                      </div>
+                      <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">飞书 ID</div>
+                        <div className="mt-1 break-all font-mono text-xs text-slate-700">{authOpenId || '-'}</div>
+                      </div>
+                      <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">用户 ID</div>
+                        <div className="mt-1 break-all font-mono text-xs text-slate-700">{authUserId || '-'}</div>
+                      </div>
+                      <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">租户标识</div>
+                        <div className="mt-1 break-all font-mono text-xs text-slate-700">{authTenantKey || '-'}</div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between border-t border-slate-100 px-5 py-4">
+                      <button
+                        onClick={() => setAccountMenuOpen(false)}
+                        className="rounded-xl px-3 py-2 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                      >
+                        关闭
+                      </button>
+                      <button
+                        onClick={handleLogout}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-slate-800"
+                      >
+                        <LogOut size={14} />
+                        退出登录
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
         </header>
@@ -1216,18 +1477,85 @@ export default function App() {
                   onBack={() => { fetchRuns(0); setSelectedRun(null); }}
                   showToast={showToast}
                   taxonomyLabels={taxonomyLabels}
+                  currentUserName={authUserName}
                 />
               </div>
             ) : (
               <motion.div key="main-content" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="max-w-7xl mx-auto space-y-8">
 
+                {activeTab === 'admin-home' && isAdmin && (
+                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+                    {/* 管理员信息 + 快捷入口 */}
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                            <ShieldAlert size={16} className="text-blue-600" />
+                            管理员：{authUserName}
+                          </div>
+                          <div className="text-xs font-mono text-slate-500 mt-1">{authOpenId || authEmail || '-'}</div>
+                        </div>
+                        <div className="flex gap-3">
+                          <button onClick={() => setActiveTab('taxonomy')} className="px-4 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors flex items-center gap-2">
+                            <FileText size={14} /> 行业标签配置
+                          </button>
+                          <button onClick={() => setActiveTab('settings')} className="px-4 py-2 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium hover:bg-emerald-100 transition-colors flex items-center gap-2">
+                            <Settings size={14} /> 系统设置
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 权限配置 */}
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+                        <h3 className="text-sm font-bold text-slate-800">权限配置</h3>
+                        <button
+                          onClick={handleSaveAccessSettings}
+                          disabled={accessSettingsSaving || accessSettingsLoading}
+                          className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-xs font-medium text-white hover:bg-slate-800 disabled:bg-slate-300 transition-colors"
+                        >
+                          {accessSettingsSaving ? <><Loader2 size={14} className="animate-spin" /> 保存中...</> : <><Save size={14} /> 保存</>}
+                        </button>
+                      </div>
+                      {accessSettingsLoading ? (
+                        <div className="grid grid-cols-2 gap-4 p-6">
+                          {Array.from({ length: 4 }).map((_, idx) => <div key={idx}><Skeleton className="h-32 rounded-lg" /></div>)}
+                        </div>
+                      ) : accessSettingsError ? (
+                        <div className="p-6"><ErrorBox message={accessSettingsError} onRetry={fetchAccessSettings} /></div>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-4 p-6">
+                          {[
+                            { key: 'allowedOpenIds', label: '允许登录 Open ID' },
+                            { key: 'allowedEmails', label: '允许登录邮箱' },
+                            { key: 'adminOpenIds', label: '管理员 Open ID' },
+                            { key: 'adminEmails', label: '管理员邮箱' },
+                          ].map(field => (
+                            <div key={field.key}>
+                              <label className="block text-xs font-medium text-slate-600 mb-1">{field.label}</label>
+                              <textarea
+                                rows={4}
+                                value={accessSettingsForm[field.key] || ''}
+                                onChange={e => setAccessSettingsForm(prev => ({ ...prev, [field.key]: e.target.value }))}
+                                className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+                                placeholder="每行一个值，留空不限制"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+
                 {/* ===== 数据汇总 ===== */}
                 {activeTab === 'dashboard' && (
                   <>
                     {/* Stats Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       {statsLoading ? (
-                        Array.from({ length: 4 }).map((_, idx) => (
+                        Array.from({ length: 3 }).map((_, idx) => (
                           <div key={idx} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                             <div className="flex items-center justify-between mb-4">
                               <Skeleton className="w-12 h-12 rounded-xl" />
@@ -1238,7 +1566,7 @@ export default function App() {
                           </div>
                         ))
                       ) : statsError ? (
-                        <div className="col-span-4"><ErrorBox message={statsError} onRetry={fetchStats} /></div>
+                        <div className="col-span-3"><ErrorBox message={statsError} onRetry={fetchStats} /></div>
                       ) : (
                         statsCards.map((stat, idx) => (
                           <motion.div
@@ -1261,6 +1589,100 @@ export default function App() {
                       )}
                     </div>
 
+                    {/* 行业类别分布 */}
+                    {stats && Object.keys(stats.labelDistribution || {}).length > 0 && (
+                      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mt-6">
+                        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+                          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2"><Activity size={14} className="text-blue-500" /> 模型打标行业分布</h3>
+                        </div>
+                        <div className="p-6 space-y-3">
+                          {(Object.entries(stats.labelDistribution) as [string, number][])
+                            .sort(([, a], [, b]) => b - a)
+                            .map(([label, count]) => {
+                              const values = Object.values(stats.labelDistribution) as number[];
+                              const maxCount = Math.max(...values);
+                              const pct = maxCount > 0 ? Math.round((count / maxCount) * 100) : 0;
+                              const totalPct = stats.totalProcessed > 0 ? ((count / stats.totalProcessed) * 100).toFixed(1) : '0';
+                              const iconInfo = TAXONOMY_NAME_ICON_MAP[resolveLabelName(label)] || { icon: HelpCircle, color: 'text-slate-400', bg: 'bg-slate-50' };
+                              const IconComp = iconInfo.icon;
+                              return (
+                                <div key={label} className="flex items-center gap-3">
+                                  <div className={`w-7 h-7 rounded-lg ${iconInfo.bg} flex items-center justify-center shrink-0`}>
+                                    <IconComp size={14} className={iconInfo.color} />
+                                  </div>
+                                  <span className="text-sm text-slate-700 w-24 truncate shrink-0">{resolveLabelName(label)}</span>
+                                  <div className="flex-1 h-6 bg-slate-100 rounded-full overflow-hidden">
+                                    <div
+                                      className="h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 flex items-center justify-end pr-2 transition-all duration-500"
+                                      style={{ width: `${Math.max(pct, 5)}%` }}
+                                    >
+                                      {pct > 20 && <span className="text-[10px] text-white font-bold">{count}</span>}
+                                    </div>
+                                  </div>
+                                  <span className="text-xs font-mono text-slate-500 w-12 text-right shrink-0">{totalPct}%</span>
+                                  <span className="text-xs text-slate-400 w-10 text-right shrink-0">{count}家</span>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 标注归档 */}
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mt-6">
+                      <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                        <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2"><Tag size={14} className="text-sky-500" /> 标注归档</h3>
+                        <span className="text-xs text-slate-400">{annotationArchive.length} 条已标注</span>
+                      </div>
+                      {archiveLoading ? (
+                        <div className="p-6 space-y-3">
+                          {Array.from({ length: 3 }).map((_, i) => <div key={i}><Skeleton className="h-10 w-full rounded-lg" /></div>)}
+                        </div>
+                      ) : annotationArchive.length > 0 ? (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-slate-100 bg-slate-50/30">
+                                <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500">企业名称</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500">模型标签</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500">标注标签</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500">标注次数</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500">标注人</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500">最新备注</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500">最新时间</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {annotationArchive.map((item, idx) => {
+                                const name = (item.enterpriseName || item.enterprise_name || '') as string;
+                                const mLabel = resolveLabelName((item.modelLabel || item.model_label || '') as string);
+                                const aLabel = resolveLabelName((item.annotatedLabel || item.annotated_label || '') as string);
+                                const count = (item.annotationCount || item.annotation_count || 0) as number;
+                                const notes = (item.latestNotes || item.latest_notes || '') as string;
+                                const reviewer = (item.latestReviewer || item.latest_reviewer || '') as string;
+                                const time = (item.latestTime || item.latest_time || '') as string;
+                                const runId = (item.runId || item.run_id || '') as string;
+                                const isSame = mLabel === aLabel;
+                                return (
+                                  <tr key={idx} className="hover:bg-slate-50/80 transition-colors cursor-pointer" onClick={() => { setSelectedRun(runId); setActiveTab('review-list'); }}>
+                                    <td className="px-6 py-3 font-medium text-slate-900">{name}</td>
+                                    <td className="px-6 py-3"><span className="px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600">{mLabel || '-'}</span></td>
+                                    <td className="px-6 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${isSame ? 'bg-emerald-50 text-emerald-700' : 'bg-sky-50 text-sky-700'}`}>{aLabel}</span></td>
+                                    <td className="px-6 py-3 text-slate-500">{count}/3</td>
+                                    <td className="px-6 py-3 text-sm text-slate-700">{reviewer || '-'}</td>
+                                    <td className="px-6 py-3 text-slate-500 max-w-48 truncate">{notes || '-'}</td>
+                                    <td className="px-6 py-3 text-xs text-slate-400 font-mono">{time}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="p-8 text-center text-sm text-slate-400">暂无标注记录</div>
+                      )}
+                    </div>
+
                   </>
                 )}
 
@@ -1272,12 +1694,12 @@ export default function App() {
                       <p className="text-sm text-slate-500 mt-1">点击任意行查看详细执行轨迹与标注</p>
                     </div>
 
-                    {/* Filter Tabs */}
+                    {/* Filter Bar */}
                     <div className="px-6 pt-4 flex items-center gap-2 border-b border-slate-100 pb-4">
                       {([
                         { key: 'all' as const, label: '全部' },
-                        { key: 'formal' as const, label: '正式输出' },
-                        { key: 'fallback' as const, label: '待审核' },
+                        { key: 'annotated' as const, label: '已标注' },
+                        { key: 'unannotated' as const, label: '待标注' },
                       ]).map(tab => (
                         <button
                           key={tab.key}
@@ -1292,6 +1714,34 @@ export default function App() {
                         </button>
                       ))}
                       <span className="ml-auto text-xs text-slate-400">共 {filteredRuns.length} 条 / 总 {runsTotal} 条</span>
+                    </div>
+
+                    {/* Label Filter Chips */}
+                    <div className="px-6 py-3 flex items-center gap-2 flex-wrap border-b border-slate-100">
+                      <span className="text-xs text-slate-400 shrink-0">行业:</span>
+                      <button
+                        onClick={() => setLabelFilter(null)}
+                        className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                          !labelFilter ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >全部</button>
+                      {Object.keys(TAXONOMY_NAME_ICON_MAP).map(name => {
+                        const info = TAXONOMY_NAME_ICON_MAP[name];
+                        const IconComp = info.icon;
+                        const isActive = labelFilter === name;
+                        return (
+                          <button
+                            key={name}
+                            onClick={() => setLabelFilter(isActive ? null : name)}
+                            className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                              isActive ? `${info.bg} ${info.color} ring-1 ring-current` : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                          >
+                            <IconComp size={12} />
+                            {name}
+                          </button>
+                        );
+                      })}
                     </div>
 
                     {runsLoading ? (
@@ -1318,7 +1768,6 @@ export default function App() {
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">行业标签</th>
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">标注状态</th>
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">置信度</th>
-                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">状态</th>
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">错误类型</th>
                               </tr>
                             </thead>
@@ -1368,9 +1817,6 @@ export default function App() {
                                         </div>
                                         <span className={`text-xs font-medium ${confInfo.color}`}>{confInfo.label}</span>
                                       </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                      <StatusBadge status={item.route} />
                                     </td>
                                     <td className="px-6 py-4">
                                       {item.errorType ? <span className="text-xs text-red-500 font-medium">{item.errorType}</span> : <span className="text-xs text-slate-400">-</span>}
@@ -1467,9 +1913,94 @@ export default function App() {
                       </div>
                     ) : (
                       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
-                        <div>
-                          <label className="block text-sm font-medium text-slate-800 mb-2">上传 CSV 文件</label>
-                          <p className="text-xs text-slate-500 mb-3">CSV 文件需包含 social_credit_code 列，可选包含 enterprise_name、business_scope 等字段</p>
+                        {/* 批量方式切换 */}
+                        <div className="flex gap-2 mb-2">
+                          <button
+                            onClick={() => setClassifyBatchMode('job')}
+                            className={`px-4 py-2 rounded-lg text-xs font-medium transition-colors ${classifyBatchMode === 'job' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                          >按工种搜索</button>
+                          <button
+                            onClick={() => setClassifyBatchMode('csv')}
+                            className={`px-4 py-2 rounded-lg text-xs font-medium transition-colors ${classifyBatchMode === 'csv' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                          >上传 CSV</button>
+                        </div>
+
+                        {classifyBatchMode === 'job' ? (
+                          <div className="space-y-4">
+                            <div className="grid grid-cols-3 gap-4">
+                              <div className="col-span-2 relative">
+                                <label className="block text-sm font-medium text-slate-800 mb-2">工种名称</label>
+                                <input
+                                  value={classifyJobName}
+                                  onChange={e => { setClassifyJobName(e.target.value); setJobNameDropdownOpen(true); }}
+                                  onFocus={() => setJobNameDropdownOpen(true)}
+                                  onBlur={() => setTimeout(() => setJobNameDropdownOpen(false), 200)}
+                                  placeholder="输入工种名称模糊搜索，如：保安、保洁、厨师..."
+                                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                />
+                                {classifyJobName && (
+                                  <button onClick={() => { setClassifyJobName(''); setJobNameDropdownOpen(false); }} className="absolute right-3 top-[42px] text-slate-400 hover:text-slate-600">
+                                    <X size={14} />
+                                  </button>
+                                )}
+                                {jobNameDropdownOpen && classifyJobName.length > 0 && (() => {
+                                  const q = classifyJobName.toLowerCase();
+                                  const matches = JOB_NAMES.filter(n => n.toLowerCase().includes(q)).slice(0, 20);
+                                  if (matches.length === 0) return null;
+                                  return (
+                                    <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+                                      {matches.map(name => (
+                                        <div
+                                          key={name}
+                                          onClick={() => { setClassifyJobName(name); setJobNameDropdownOpen(false); }}
+                                          className="px-4 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700 cursor-pointer"
+                                        >{name}</div>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-slate-800 mb-2">业务日期 (pt)</label>
+                                <input
+                                  value={classifyPt}
+                                  onChange={e => setClassifyPt(e.target.value)}
+                                  placeholder="yyyymmdd"
+                                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                />
+                              </div>
+                            </div>
+                            <p className="text-xs text-slate-400">按工种名称从 ODPS 模糊匹配拉取企业，单次最多 100 条</p>
+                            <button
+                              onClick={async () => {
+                                if (!classifyJobName.trim()) return;
+                                setClassifySubmitting(true);
+                                setClassifyTaskId(null);
+                                setClassifyStages([]);
+                                setClassifyTaskStatus('');
+                                setClassifyResultRunId(null);
+                                setClassifyError(null);
+                                try {
+                                  const res = await api.classifyByJobName(classifyJobName.trim(), classifyPt);
+                                  showToast(res.message);
+                                  setClassifyTaskId(res.taskId);
+                                } catch (e: any) {
+                                  showToast(e.message || '提交失败', true);
+                                } finally {
+                                  setClassifySubmitting(false);
+                                }
+                              }}
+                              disabled={classifySubmitting || !classifyJobName.trim()}
+                              className="px-6 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 disabled:bg-slate-300 transition-colors flex items-center gap-2"
+                            >
+                              {classifySubmitting ? <><Loader2 size={14} className="animate-spin" /> 搜索中...</> : <><Search size={14} /> 按工种批量分类</>}
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="space-y-4">
+                            <div>
+                              <label className="block text-sm font-medium text-slate-800 mb-2">上传 CSV 文件</label>
+                              <p className="text-xs text-slate-500 mb-3">CSV 需包含 social_credit_code 列，单次最多 100 条</p>
                           <div
                             className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:border-blue-400 hover:bg-blue-50/30 transition-colors cursor-pointer"
                             onClick={() => document.getElementById('csv-upload')?.click()}
@@ -1514,6 +2045,8 @@ export default function App() {
                         >
                           {classifySubmitting ? <><Loader2 size={14} className="animate-spin" /> 上传中...</> : <><Send size={14} /> 开始批量分类</>}
                         </button>
+                          </div>
+                        )}
                       </div>
                     )}
 

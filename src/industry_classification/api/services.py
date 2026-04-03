@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from industry_classification.api.schemas import (
+    AccessSettingsResponse,
+    AccessSettingsUpdate,
     AnnotationResponse,
     FallbackRecord,
     PaginatedFallbackList,
@@ -58,7 +60,17 @@ class _SqliteResultReader:
 
     @property
     def enabled(self) -> bool:
-        return self._path is not None and self._path.exists()
+        if self._path is None or not self._path.exists():
+            return False
+        try:
+            conn = sqlite3.connect(self._path)
+            row = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='pipeline_runs'"
+            ).fetchone()
+            conn.close()
+            return row is not None
+        except Exception:
+            return False
 
     def _connect(self) -> sqlite3.Connection:
         assert self._path is not None
@@ -110,7 +122,7 @@ class _SqliteResultReader:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                select run_id, entity_key, annotated_label, reviewer_notes, created_at
+                select run_id, entity_key, annotated_label, reviewer_notes, reviewer_name, created_at
                 from annotations
                 order by created_at asc
                 """
@@ -120,6 +132,7 @@ class _SqliteResultReader:
             entry = {
                 "annotated_label": row["annotated_label"],
                 "reviewer_notes": row["reviewer_notes"],
+                "reviewer_name": row["reviewer_name"] if "reviewer_name" in row.keys() else "",
                 "created_at": row["created_at"],
             }
             result.setdefault(row["run_id"], []).append(entry)
@@ -280,6 +293,71 @@ class _SqliteResultReader:
             )
         return result
 
+    def count_annotated(self) -> int:
+        if not self.enabled:
+            return 0
+        with self._connect() as conn:
+            row = conn.execute(
+                "select count(distinct run_id) from annotations"
+            ).fetchone()
+            return row[0] if row else 0
+
+    def get_label_distribution(self) -> dict[str, int]:
+        if not self.enabled:
+            return {}
+        dist: dict[str, int] = {}
+        with self._connect() as conn:
+            # 优先从 inference_steps 取模型原始 final_decision 结果
+            step_labels: dict[str, str] = {}
+            step_rows = conn.execute(
+                """
+                select run_id, result_json
+                from inference_steps
+                where step_name = 'final_decision'
+                """
+            ).fetchall()
+            for sr in step_rows:
+                result = self._load_json(sr["result_json"], {})
+                if result and result.get("final_label"):
+                    step_labels[sr["run_id"]] = result["final_label"]
+
+        for row in self._list_run_rows():
+            # 优先用 inference_steps 中的模型原始标签
+            label = step_labels.get(row["run_id"])
+            if not label:
+                decision = self._load_json(row["decision_record_json"], {})
+                label = decision.get("final_label") if decision else None
+            dist[label or "未知"] = dist.get(label or "未知", 0) + 1
+        return dist
+
+    def list_annotated_runs(self) -> list[dict[str, Any]]:
+        if not self.enabled:
+            return []
+        annotations = self._annotation_map()
+        if not annotations:
+            return []
+        result: list[dict[str, Any]] = []
+        for row in self._list_run_rows():
+            ann_list = annotations.get(row["run_id"])
+            if not ann_list:
+                continue
+            wide = self._load_json(row["wide_row_json"], {})
+            decision = self._load_json(row["decision_record_json"], {})
+            latest = ann_list[-1]
+            result.append({
+                "run_id": row["run_id"],
+                "entity_key": row["entity_key"],
+                "enterprise_name": wide.get("enterprise_name", row["entity_key"]),
+                "model_label": decision.get("final_label"),
+                "annotated_label": latest["annotated_label"],
+                "annotation_count": len(ann_list),
+                "latest_notes": latest.get("reviewer_notes", ""),
+                "latest_reviewer": latest.get("reviewer_name", ""),
+                "latest_time": latest.get("created_at", ""),
+                "annotations": ann_list,
+            })
+        return result
+
     def review_fallback(
         self,
         entity_key: str,
@@ -371,6 +449,7 @@ class _SqliteResultReader:
         run_id: str,
         annotated_label: str,
         reviewer_notes: str,
+        reviewer_name: str = "",
     ) -> dict[str, Any] | None:
         if not self.enabled:
             return None
@@ -399,10 +478,10 @@ class _SqliteResultReader:
             conn.execute(
                 """
                 insert into annotations (
-                    run_id, entity_key, annotated_label, reviewer_notes
-                ) values (?, ?, ?, ?)
+                    run_id, entity_key, annotated_label, reviewer_notes, reviewer_name
+                ) values (?, ?, ?, ?, ?)
                 """,
-                (run_id, row["entity_key"], annotated_label, reviewer_notes),
+                (run_id, row["entity_key"], annotated_label, reviewer_notes, reviewer_name),
             )
             if row["route"] == "fallback":
                 conn.execute(
@@ -446,21 +525,34 @@ class StatsService:
         if self._sqlite.enabled:
             formal_count, fallback_count = self._sqlite.count_by_route()
             total = formal_count + fallback_count
+            annotated_count = self._sqlite.count_annotated()
+            label_dist = self._sqlite.get_label_distribution()
             return StatsResponse(
                 total_processed=total,
-                formal_count=formal_count,
-                fallback_count=fallback_count,
-                cache_hit_rate=0.0,
+                annotated_count=annotated_count,
+                unannotated_count=total - annotated_count,
+                label_distribution=label_dist,
             )
         formal_count = len(self._formal)
         fallback_count = len(self._fallback)
         total = formal_count + fallback_count
-        # cache_hit_rate is not tracked in the stores; report 0.0
+        annotated_count = sum(
+            1 for r in list(self._formal.values()) + list(self._fallback.values())
+            if r.get("annotations")
+        )
+        label_dist: dict[str, int] = {}
+        for r in list(self._formal.values()) + list(self._fallback.values()):
+            # 优先取顶层 final_label，再查嵌套的 decision_record
+            label = r.get("final_label")
+            if not label:
+                dr = r.get("decision_record") or r.get("model_decision_record") or {}
+                label = dr.get("final_label") if isinstance(dr, dict) else None
+            label_dist[label or "未知"] = label_dist.get(label or "未知", 0) + 1
         return StatsResponse(
             total_processed=total,
-            formal_count=formal_count,
-            fallback_count=fallback_count,
-            cache_hit_rate=0.0,
+            annotated_count=annotated_count,
+            unannotated_count=total - annotated_count,
+            label_distribution=label_dist,
         )
 
 
@@ -587,15 +679,17 @@ class RunService:
         run_id: str,
         annotated_label: str,
         reviewer_notes: str = "",
+        reviewer_name: str = "",
     ) -> AnnotationResponse | None:
         if self._sqlite.enabled:
-            result = self._sqlite.annotate_run(run_id, annotated_label, reviewer_notes)
+            result = self._sqlite.annotate_run(run_id, annotated_label, reviewer_notes, reviewer_name)
             return AnnotationResponse(**result) if result is not None else None
 
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         new_annotation = {
             "annotated_label": annotated_label,
             "reviewer_notes": reviewer_notes,
+            "reviewer_name": reviewer_name,
             "created_at": timestamp,
         }
 
@@ -662,6 +756,37 @@ class RunService:
             )
 
         return None
+
+    def list_annotated_runs(self) -> list[dict[str, Any]]:
+        if self._sqlite.enabled:
+            return self._sqlite.list_annotated_runs()
+        result: list[dict[str, Any]] = []
+        for route, store in [("formal", self._formal), ("fallback", self._fallback)]:
+            for record in store.values():
+                annotations = record.get("annotations") or []
+                if not isinstance(annotations, list) or not annotations:
+                    continue
+                audit = _get_audit(record)
+                entity_key = audit.get("entity_key", "")
+                wide = self._wide.get(entity_key, {})
+                dr = record.get("model_decision_record") or record.get("decision_record") or {}
+                model_label = dr.get("final_label") if isinstance(dr, dict) else None
+                if not model_label:
+                    model_label = record.get("final_label")
+                latest = annotations[-1]
+                result.append({
+                    "run_id": audit.get("run_id", ""),
+                    "entity_key": entity_key,
+                    "enterprise_name": record.get("enterprise_name") or wide.get("enterprise_name", entity_key),
+                    "model_label": model_label,
+                    "annotated_label": latest.get("annotated_label"),
+                    "annotation_count": len(annotations),
+                    "latest_notes": latest.get("reviewer_notes", ""),
+                    "latest_reviewer": latest.get("reviewer_name", ""),
+                    "latest_time": latest.get("created_at", ""),
+                    "annotations": annotations,
+                })
+        return result
 
 
 # ---------------------------------------------------------------------------
@@ -897,6 +1022,13 @@ _RUNTIME_DEFAULTS: dict[str, int] = {
     "max_in_flight": 8,
 }
 
+_ACCESS_SETTINGS_ENV_MAP: dict[str, str] = {
+    "allowed_open_ids": "FEISHU_ALLOWED_OPEN_IDS",
+    "allowed_emails": "FEISHU_ALLOWED_EMAILS",
+    "admin_open_ids": "FEISHU_ADMIN_OPEN_IDS",
+    "admin_emails": "FEISHU_ADMIN_EMAILS",
+}
+
 
 class SettingsService:
     """Read / write runtime configuration stored in the ``.env`` file."""
@@ -940,6 +1072,15 @@ class SettingsService:
             ),
         )
 
+    def get_access_settings(self) -> AccessSettingsResponse:
+        env = self._read_env()
+        return AccessSettingsResponse(
+            allowed_open_ids=self._parse_csv_list(env.get("FEISHU_ALLOWED_OPEN_IDS", "")),
+            allowed_emails=self._parse_csv_list(env.get("FEISHU_ALLOWED_EMAILS", ""), lowercase=True),
+            admin_open_ids=self._parse_csv_list(env.get("FEISHU_ADMIN_OPEN_IDS", "")),
+            admin_emails=self._parse_csv_list(env.get("FEISHU_ADMIN_EMAILS", ""), lowercase=True),
+        )
+
     # -- write ------------------------------------------------------------
 
     def update_settings(self, update: SettingsUpdate) -> SettingsResponse:
@@ -960,6 +1101,22 @@ class SettingsService:
             load_llm_settings.cache_clear()
 
         return self.get_settings()
+
+    def update_access_settings(self, update: AccessSettingsUpdate) -> AccessSettingsResponse:
+        normalized = {
+            "allowed_open_ids": self._normalize_items(update.allowed_open_ids),
+            "allowed_emails": self._normalize_items(update.allowed_emails, lowercase=True),
+            "admin_open_ids": self._normalize_items(update.admin_open_ids),
+            "admin_emails": self._normalize_items(update.admin_emails, lowercase=True),
+        }
+        changes = {
+            env_var: ",".join(normalized[field_name])
+            for field_name, env_var in _ACCESS_SETTINGS_ENV_MAP.items()
+        }
+        self._patch_env_file(changes)
+        _load_env_values.cache_clear()
+        load_llm_settings.cache_clear()
+        return AccessSettingsResponse(**normalized)
 
     # -- .env file manipulation -------------------------------------------
 
@@ -995,3 +1152,22 @@ class SettingsService:
         self._env_path.write_text(
             "\n".join(new_lines) + "\n", encoding="utf-8"
         )
+
+    @staticmethod
+    def _parse_csv_list(raw: str, lowercase: bool = False) -> list[str]:
+        items = [item.strip() for item in raw.split(",") if item.strip()]
+        if lowercase:
+            return [item.lower() for item in items]
+        return items
+
+    @staticmethod
+    def _normalize_items(items: list[str], lowercase: bool = False) -> list[str]:
+        normalized: list[str] = []
+        for item in items:
+            value = item.strip()
+            if not value:
+                continue
+            value = value.lower() if lowercase else value
+            if value not in normalized:
+                normalized.append(value)
+        return normalized

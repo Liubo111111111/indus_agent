@@ -7,9 +7,9 @@
 
 export interface StatsResponse {
   totalProcessed: number;
-  formalCount: number;
-  fallbackCount: number;
-  cacheHitRate: number;
+  annotatedCount: number;
+  unannotatedCount: number;
+  labelDistribution: Record<string, number>;
 }
 
 // --- 运行记录 ---
@@ -101,12 +101,14 @@ export interface ReviewResponse {
 export interface AnnotationRecord {
   annotatedLabel: string;
   reviewerNotes?: string;
+  reviewerName?: string;
   createdAt?: string;
 }
 
 export interface AnnotationRequest {
   annotatedLabel: string;
   reviewerNotes?: string;
+  reviewerName?: string;
 }
 
 export interface AnnotationResponse {
@@ -126,6 +128,7 @@ export interface AuthUser {
   enterpriseEmail?: string;
   userId?: string;
   tenantKey?: string;
+  isAdmin?: boolean;
 }
 
 export interface AuthSession {
@@ -133,6 +136,57 @@ export interface AuthSession {
   authenticated: boolean;
   user: AuthUser | null;
   loginUrl: string | null;
+}
+
+export interface AdminOverview {
+  authEnabled: boolean;
+  adminMode: string;
+  accessScope: string;
+  frontendBaseUrl: string;
+  redirectUri: string;
+  hostConsistent: boolean;
+  allowedOpenIdCount: number;
+  allowedEmailCount: number;
+  adminOpenIdCount: number;
+  adminEmailCount: number;
+  warnings: string[];
+}
+
+export interface AccessSettings {
+  allowedOpenIds: string[];
+  allowedEmails: string[];
+  adminOpenIds: string[];
+  adminEmails: string[];
+}
+
+export interface AdminAuthAuditEvent {
+  eventType: string;
+  openId: string;
+  name: string;
+  email?: string;
+  enterpriseEmail?: string;
+  userId?: string;
+  tenantKey?: string;
+  isAdmin: boolean;
+  createdAt: string;
+}
+
+export interface AdminAuthAuditUser {
+  openId: string;
+  name: string;
+  email?: string;
+  enterpriseEmail?: string;
+  userId?: string;
+  tenantKey?: string;
+  isAdmin: boolean;
+  lastEventType: string;
+  lastEventAt: string;
+  eventCount: number;
+}
+
+export interface AdminAuthAudit {
+  events: AdminAuthAuditEvent[];
+  users: AdminAuthAuditUser[];
 }
 
 // --- Taxonomy ---

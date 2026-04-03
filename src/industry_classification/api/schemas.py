@@ -8,9 +8,9 @@ from pydantic import BaseModel, Field
 
 class StatsResponse(BaseModel):
     total_processed: int
-    formal_count: int
-    fallback_count: int
-    cache_hit_rate: float  # 0.0 ~ 1.0
+    annotated_count: int = 0
+    unannotated_count: int = 0
+    label_distribution: dict[str, int] = Field(default_factory=dict)
 
 
 # --- 运行记录 ---
@@ -118,6 +118,7 @@ class ReviewResponse(BaseModel):
 class AnnotationRequest(BaseModel):
     annotated_label: str
     reviewer_notes: str = ""
+    reviewer_name: str = ""
 
 
 class AnnotationResponse(BaseModel):
@@ -139,6 +140,7 @@ class AuthUserResponse(BaseModel):
     enterprise_email: str = ""
     user_id: str = ""
     tenant_key: str = ""
+    is_admin: bool = False
 
 
 class AuthSessionResponse(BaseModel):
@@ -146,6 +148,64 @@ class AuthSessionResponse(BaseModel):
     authenticated: bool
     user: AuthUserResponse | None = None
     login_url: str | None = None
+
+
+class AdminOverviewResponse(BaseModel):
+    auth_enabled: bool
+    admin_mode: str
+    access_scope: str
+    frontend_base_url: str
+    redirect_uri: str
+    host_consistent: bool
+    allowed_open_id_count: int
+    allowed_email_count: int
+    admin_open_id_count: int
+    admin_email_count: int
+    warnings: list[str] = Field(default_factory=list)
+
+
+class AccessSettingsResponse(BaseModel):
+    allowed_open_ids: list[str] = Field(default_factory=list)
+    allowed_emails: list[str] = Field(default_factory=list)
+    admin_open_ids: list[str] = Field(default_factory=list)
+    admin_emails: list[str] = Field(default_factory=list)
+
+
+class AccessSettingsUpdate(BaseModel):
+    allowed_open_ids: list[str] = Field(default_factory=list)
+    allowed_emails: list[str] = Field(default_factory=list)
+    admin_open_ids: list[str] = Field(default_factory=list)
+    admin_emails: list[str] = Field(default_factory=list)
+
+
+class AdminAuthAuditEventResponse(BaseModel):
+    event_type: str
+    open_id: str
+    name: str = ""
+    email: str = ""
+    enterprise_email: str = ""
+    user_id: str = ""
+    tenant_key: str = ""
+    is_admin: bool = False
+    created_at: str
+
+
+class AdminAuthAuditUserResponse(BaseModel):
+    open_id: str
+    name: str = ""
+    email: str = ""
+    enterprise_email: str = ""
+    user_id: str = ""
+    tenant_key: str = ""
+    is_admin: bool = False
+    last_event_type: str
+    last_event_at: str
+    event_count: int
+
+
+class AdminAuthAuditResponse(BaseModel):
+    events: list[AdminAuthAuditEventResponse] = Field(default_factory=list)
+    users: list[AdminAuthAuditUserResponse] = Field(default_factory=list)
 
 
 # --- Taxonomy ---
@@ -191,6 +251,12 @@ class SettingsUpdate(BaseModel):
 class ClassifySingleRequest(BaseModel):
     """单条分类请求：输入企业名称或信用代码"""
     query: str = Field(..., min_length=1, description="企业名称或统一社会信用代码")
+    pt: str = Field(default="", description="业务日期分区 yyyymmdd，为空则使用最新分区")
+
+
+class ClassifyByJobNameRequest(BaseModel):
+    """按工种批量分类请求"""
+    job_name: str = Field(..., min_length=1, description="工种名称，用于模糊匹配")
     pt: str = Field(default="", description="业务日期分区 yyyymmdd，为空则使用最新分区")
 
 
