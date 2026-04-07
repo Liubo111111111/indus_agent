@@ -72,6 +72,7 @@ def create_router(
                 "enabled": False,
                 "authenticated": False,
                 "access_denied": False,
+                "request_status": None,
                 "user": None,
                 "login_url": None,
         }
@@ -158,6 +159,42 @@ def create_router(
             path="/",
         )
         return response
+
+    # -- access requests --------------------------------------------------
+
+    @router.post("/auth/request-access")
+    def request_access(request: Request, body: dict = None):
+        """用户提交访问权限申请"""
+        if auth is None:
+            raise HTTPException(status_code=503, detail="Auth not configured")
+        user = auth.get_current_user(request)
+        if user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        reason = (body or {}).get("reason", "") if body else ""
+        result = auth._audit_store.create_access_request(user, reason)
+        return result
+
+    @router.get("/admin/access-requests")
+    def list_access_requests(status: str = "", _user=Depends(require_admin)):
+        """管理员查看权限申请列表"""
+        if auth is None:
+            raise HTTPException(status_code=503, detail="Auth not configured")
+        return auth._audit_store.list_access_requests(status)
+
+    @router.put("/admin/access-requests/{open_id}")
+    def review_access_request(open_id: str, body: dict, _user=Depends(require_admin)):
+        """管理员批准或拒绝权限申请"""
+        if auth is None:
+            raise HTTPException(status_code=503, detail="Auth not configured")
+        action = body.get("action", "")
+        if action not in ("approve", "reject"):
+            raise HTTPException(status_code=400, detail="action must be 'approve' or 'reject'")
+        status = "approved" if action == "approve" else "rejected"
+        reviewer_note = body.get("reviewer_note", "")
+        result = auth._audit_store.update_access_request(open_id, status, reviewer_note)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Access request not found")
+        return result
 
     # -- stats ------------------------------------------------------------
 

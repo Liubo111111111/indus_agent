@@ -49,6 +49,23 @@ class AuthAuditStore:
 
                 create index if not exists idx_auth_events_open_id
                 on auth_events (open_id);
+
+                create table if not exists access_requests (
+                    id integer primary key autoincrement,
+                    open_id text not null,
+                    name text not null default '',
+                    email text not null default '',
+                    enterprise_email text not null default '',
+                    tenant_key text not null default '',
+                    reason text not null default '',
+                    status text not null default 'pending',
+                    reviewer_note text not null default '',
+                    created_at text not null default current_timestamp,
+                    updated_at text not null default current_timestamp
+                );
+
+                create unique index if not exists idx_access_requests_open_id
+                on access_requests (open_id);
                 """
             )
             self._conn.commit()
@@ -149,6 +166,95 @@ class AuthAuditStore:
             }
             for row in rows
         ]
+
+    # -- access requests --------------------------------------------------
+
+    def create_access_request(self, user: "FeishuUser", reason: str = "") -> dict[str, Any]:
+        with self._lock:
+            existing = self._conn.execute(
+                "select id, status from access_requests where open_id = ?",
+                (user.open_id,),
+            ).fetchone()
+            if existing:
+                if existing["status"] == "pending":
+                    return {"status": "already_pending"}
+                if existing["status"] == "approved":
+                    return {"status": "already_approved"}
+                # rejected → allow re-apply
+                self._conn.execute(
+                    """
+                    update access_requests
+                    set status = 'pending', reason = ?, name = ?, email = ?,
+                        enterprise_email = ?, tenant_key = ?,
+                        reviewer_note = '', updated_at = current_timestamp
+                    where open_id = ?
+                    """,
+                    (reason, user.name, user.email, user.enterprise_email, user.tenant_key, user.open_id),
+                )
+            else:
+                self._conn.execute(
+                    """
+                    insert into access_requests (open_id, name, email, enterprise_email, tenant_key, reason)
+                    values (?, ?, ?, ?, ?, ?)
+                    """,
+                    (user.open_id, user.name, user.email, user.enterprise_email, user.tenant_key, reason),
+                )
+            self._conn.commit()
+        return {"status": "submitted"}
+
+    def get_access_request_status(self, open_id: str) -> str | None:
+        with self._lock:
+            row = self._conn.execute(
+                "select status from access_requests where open_id = ?",
+                (open_id,),
+            ).fetchone()
+        return row["status"] if row else None
+
+    def list_access_requests(self, status_filter: str = "") -> list[dict[str, Any]]:
+        with self._lock:
+            if status_filter:
+                rows = self._conn.execute(
+                    "select * from access_requests where status = ? order by created_at desc",
+                    (status_filter,),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    "select * from access_requests order by created_at desc"
+                ).fetchall()
+        return [
+            {
+                "open_id": row["open_id"],
+                "name": row["name"],
+                "email": row["email"],
+                "enterprise_email": row["enterprise_email"],
+                "tenant_key": row["tenant_key"],
+                "reason": row["reason"],
+                "status": row["status"],
+                "reviewer_note": row["reviewer_note"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
+
+    def update_access_request(self, open_id: str, status: str, reviewer_note: str = "") -> dict[str, Any] | None:
+        with self._lock:
+            row = self._conn.execute(
+                "select id from access_requests where open_id = ?",
+                (open_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            self._conn.execute(
+                """
+                update access_requests
+                set status = ?, reviewer_note = ?, updated_at = current_timestamp
+                where open_id = ?
+                """,
+                (status, reviewer_note, open_id),
+            )
+            self._conn.commit()
+        return {"open_id": open_id, "status": status}
 
 
 class FeishuUser(BaseModel):
@@ -403,14 +509,18 @@ class FeishuAuthService:
         user = self.get_current_user(request)
         user_payload = None
         access_denied = False
+        request_status = None
         if user is not None:
             user_payload = user.model_dump()
             user_payload["is_admin"] = self.is_admin(user)
             access_denied = not self._is_allowed(user)
+            if access_denied:
+                request_status = self._audit_store.get_access_request_status(user.open_id)
         return {
             "enabled": self.enabled,
             "authenticated": user is not None,
             "access_denied": access_denied,
+            "request_status": request_status,
             "user": user_payload,
             "login_url": self.build_login_url("/") if self.enabled else None,
         }
@@ -479,10 +589,15 @@ class FeishuAuthService:
     def _is_allowed(self, user: FeishuUser) -> bool:
         # 1. tenant_key 校验：配置了则只允许指定企业的用户（支持多个）
         if self._settings.allowed_tenant_keys and user.tenant_key not in self._settings.allowed_tenant_keys:
-            return False
+            # 即使 tenant 不匹配，也检查是否已被管理员批准
+            req_status = self._audit_store.get_access_request_status(user.open_id)
+            if req_status != "approved":
+                return False
         # 2. open_id 白名单
         if self._settings.allowed_open_ids and user.open_id not in self._settings.allowed_open_ids:
-            return False
+            req_status = self._audit_store.get_access_request_status(user.open_id)
+            if req_status != "approved":
+                return False
         # 3. email 白名单
         allowed_emails = self._settings.allowed_emails
         if not allowed_emails:
@@ -491,7 +606,11 @@ class FeishuAuthService:
             user.email.strip().lower(),
             user.enterprise_email.strip().lower(),
         }
-        return any(email and email in allowed_emails for email in email_candidates)
+        if any(email and email in allowed_emails for email in email_candidates):
+            return True
+        # 最后检查是否被管理员批准
+        req_status = self._audit_store.get_access_request_status(user.open_id)
+        return req_status == "approved"
 
     def authenticate_with_code(self, code: str, state: str) -> tuple[FeishuUser, str]:
         if not self.enabled:

@@ -365,6 +365,102 @@ const AnnotationDialog = ({
 };
 
 
+// --- Access Requests Panel (Admin) ---
+const AccessRequestsPanel = ({ showToast }: { showToast: (msg: string, isError?: boolean) => void }) => {
+  const [requests, setRequests] = useState<Array<{ openId: string; name: string; email: string; enterpriseEmail: string; tenantKey: string; reason: string; status: string; reviewerNote: string; createdAt: string; updatedAt: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('pending');
+
+  const fetchRequests = useCallback(() => {
+    setLoading(true);
+    api.getAccessRequests(filter)
+      .then(setRequests)
+      .catch(() => setRequests([]))
+      .finally(() => setLoading(false));
+  }, [filter]);
+
+  useEffect(() => { fetchRequests(); }, [fetchRequests]);
+
+  const handleReview = async (openId: string, action: 'approve' | 'reject') => {
+    try {
+      await api.reviewAccessRequest(openId, action);
+      showToast(action === 'approve' ? '已批准' : '已拒绝');
+      fetchRequests();
+    } catch (e: any) {
+      showToast(e.message || '操作失败', true);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+        <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+          <Bell size={14} className="text-amber-500" /> 权限申请审批
+        </h3>
+        <div className="flex gap-2">
+          {(['pending', 'approved', 'rejected', ''] as const).map(f => (
+            <button
+              key={f || 'all'}
+              onClick={() => setFilter(f)}
+              className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                filter === f ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {f === 'pending' ? '待审批' : f === 'approved' ? '已批准' : f === 'rejected' ? '已拒绝' : '全部'}
+            </button>
+          ))}
+        </div>
+      </div>
+      {loading ? (
+        <div className="p-6 space-y-3">
+          {Array.from({ length: 3 }).map((_, i) => <div key={i}><Skeleton className="h-10 w-full rounded-lg" /></div>)}
+        </div>
+      ) : requests.length > 0 ? (
+        <div className="divide-y divide-slate-100">
+          {requests.map(req => (
+            <div key={req.openId} className="px-6 py-4 flex items-center gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-slate-900">{req.name || req.openId}</div>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  {req.enterpriseEmail || req.email || '-'} · 企业: {req.tenantKey || '-'}
+                </div>
+                {req.reason && <div className="text-xs text-slate-400 mt-1">理由: {req.reason}</div>}
+                <div className="text-[10px] text-slate-400 mt-1">{req.createdAt}</div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {req.status === 'pending' ? (
+                  <>
+                    <button
+                      onClick={() => handleReview(req.openId, 'approve')}
+                      className="px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-medium hover:bg-emerald-100 transition-colors"
+                    >
+                      批准
+                    </button>
+                    <button
+                      onClick={() => handleReview(req.openId, 'reject')}
+                      className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-medium hover:bg-red-100 transition-colors"
+                    >
+                      拒绝
+                    </button>
+                  </>
+                ) : (
+                  <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+                    req.status === 'approved' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'
+                  }`}>
+                    {req.status === 'approved' ? '已批准' : '已拒绝'}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="p-8 text-center text-sm text-slate-400">暂无权限申请</div>
+      )}
+    </div>
+  );
+};
+
 // --- Detail View (Split Panel) ---
 const DetailView = ({
   runId,
@@ -1245,17 +1341,109 @@ export default function App() {
   if (authSession?.accessDenied) {
     const userName = authSession?.user?.name || '未知用户';
     const tenantKey = authSession?.user?.tenantKey || '';
+    const reqStatus = authSession?.requestStatus;
+    const [requestReason, setRequestReason] = React.useState('');
+    const [requestSubmitting, setRequestSubmitting] = React.useState(false);
+    const [localReqStatus, setLocalReqStatus] = React.useState(reqStatus);
+
+    const handleRequestAccess = async () => {
+      setRequestSubmitting(true);
+      try {
+        const result = await api.requestAccess(requestReason);
+        if (result.status === 'already_pending') {
+          setLocalReqStatus('pending');
+        } else if (result.status === 'already_approved') {
+          await fetchAuthSession();
+        } else {
+          setLocalReqStatus('pending');
+        }
+        showToast('权限申请已提交，请等待管理员审批');
+      } catch (e: any) {
+        showToast(e.message || '申请提交失败', true);
+      } finally {
+        setRequestSubmitting(false);
+      }
+    };
+
+    if (localReqStatus === 'pending') {
+      return (
+        <FullScreenState
+          title="权限申请已提交"
+          description={`${userName}，你的访问权限申请正在等待管理员审批，请耐心等待。`}
+          action={(
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={fetchAuthSession}
+                className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+              >
+                <RefreshCw size={16} /> 刷新状态
+              </button>
+              <button
+                onClick={handleLogout}
+                className="inline-flex items-center gap-2 rounded-2xl bg-slate-200 px-6 py-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-300"
+              >
+                <LogOut size={16} /> 退出登录
+              </button>
+            </div>
+          )}
+        />
+      );
+    }
+
+    if (localReqStatus === 'rejected') {
+      return (
+        <FullScreenState
+          title="权限申请被拒绝"
+          description={`${userName}，你的访问权限申请未通过审批。如有疑问请联系管理员。`}
+          action={(
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={() => setLocalReqStatus(null)}
+                className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+              >
+                重新申请
+              </button>
+              <button
+                onClick={handleLogout}
+                className="inline-flex items-center gap-2 rounded-2xl bg-slate-200 px-6 py-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-300"
+              >
+                <LogOut size={16} /> 退出登录
+              </button>
+            </div>
+          )}
+        />
+      );
+    }
+
     return (
       <FullScreenState
-        title="暂无访问权限"
-        description={`${userName}，你的账号尚未获得授权访问本系统。请联系管理员开通权限。${tenantKey ? `\n企业标识: ${tenantKey}` : ''}`}
+        title="申请访问权限"
+        description={`${userName}，你的账号尚未获得授权。请填写申请理由，提交后等待管理员审批。${tenantKey ? `\n企业标识: ${tenantKey}` : ''}`}
         action={(
-          <button
-            onClick={handleLogout}
-            className="inline-flex items-center gap-2 rounded-2xl bg-slate-200 px-6 py-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-300"
-          >
-            <LogOut size={16} /> 退出登录
-          </button>
+          <div className="space-y-4 w-full max-w-sm mx-auto">
+            <textarea
+              value={requestReason}
+              onChange={e => setRequestReason(e.target.value)}
+              placeholder="请简要说明申请理由（可选）"
+              rows={3}
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none resize-none"
+            />
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={handleRequestAccess}
+                disabled={requestSubmitting}
+                className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:bg-slate-400"
+              >
+                {requestSubmitting ? <><Loader2 size={16} className="animate-spin" /> 提交中...</> : <><Send size={16} /> 提交申请</>}
+              </button>
+              <button
+                onClick={handleLogout}
+                className="inline-flex items-center gap-2 rounded-2xl bg-slate-200 px-6 py-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-300"
+              >
+                <LogOut size={16} /> 退出登录
+              </button>
+            </div>
+          </div>
         )}
       />
     );
@@ -1724,6 +1912,9 @@ export default function App() {
                         <div className="p-8 text-center text-sm text-slate-400">暂无标注记录</div>
                       )}
                     </div>
+
+                    {/* 权限申请审批 */}
+                    <AccessRequestsPanel showToast={showToast} />
 
                   </>
                 )}

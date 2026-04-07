@@ -94,6 +94,23 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export const api = {
   getAuthSession: () => request<AuthSession>('/auth/session'),
 
+  requestAccess: (reason?: string) =>
+    request<{ status: string }>('/auth/request-access', {
+      method: 'POST',
+      body: JSON.stringify({ reason: reason || '' }),
+    }),
+
+  getAccessRequests: (status?: string) =>
+    request<Array<{ openId: string; name: string; email: string; enterpriseEmail: string; tenantKey: string; reason: string; status: string; reviewerNote: string; createdAt: string; updatedAt: string }>>(
+      `/admin/access-requests${status ? `?status=${status}` : ''}`
+    ),
+
+  reviewAccessRequest: (openId: string, action: 'approve' | 'reject', reviewerNote?: string) =>
+    request<{ openId: string; status: string }>(`/admin/access-requests/${encodeURIComponent(openId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ action, reviewer_note: reviewerNote || '' }),
+    }),
+
   getAdminOverview: () => request<AdminOverview>('/admin/overview'),
 
   getAdminAuthAudit: () => request<AdminAuthAudit>('/admin/auth-audit'),
