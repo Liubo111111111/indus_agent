@@ -903,6 +903,9 @@ export default function App() {
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [accessRequestReason, setAccessRequestReason] = useState('');
+  const [accessRequestSubmitting, setAccessRequestSubmitting] = useState(false);
+  const [localReqStatus, setLocalReqStatus] = useState<string | null | undefined>(null);
 
   // Dashboard stats
   const [stats, setStats] = useState<StatsResponse | null>(null);
@@ -1007,6 +1010,13 @@ export default function App() {
 
   const authReady = !authLoading && !!authSession?.enabled && authSession.authenticated;
   const isAdmin = !!authSession?.user?.isAdmin;
+
+  // Sync localReqStatus when authSession changes
+  useEffect(() => {
+    if (authSession?.requestStatus !== undefined) {
+      setLocalReqStatus(authSession.requestStatus);
+    }
+  }, [authSession?.requestStatus]);
 
   // --- Data Fetching ---
   const fetchStats = useCallback(() => {
@@ -1341,15 +1351,11 @@ export default function App() {
   if (authSession?.accessDenied) {
     const userName = authSession?.user?.name || '未知用户';
     const tenantKey = authSession?.user?.tenantKey || '';
-    const reqStatus = authSession?.requestStatus;
-    const [requestReason, setRequestReason] = React.useState('');
-    const [requestSubmitting, setRequestSubmitting] = React.useState(false);
-    const [localReqStatus, setLocalReqStatus] = React.useState(reqStatus);
 
     const handleRequestAccess = async () => {
-      setRequestSubmitting(true);
+      setAccessRequestSubmitting(true);
       try {
-        const result = await api.requestAccess(requestReason);
+        const result = await api.requestAccess(accessRequestReason);
         if (result.status === 'already_pending') {
           setLocalReqStatus('pending');
         } else if (result.status === 'already_approved') {
@@ -1361,7 +1367,7 @@ export default function App() {
       } catch (e: any) {
         showToast(e.message || '申请提交失败', true);
       } finally {
-        setRequestSubmitting(false);
+        setAccessRequestSubmitting(false);
       }
     };
 
@@ -1422,8 +1428,8 @@ export default function App() {
         action={(
           <div className="space-y-4 w-full max-w-sm mx-auto">
             <textarea
-              value={requestReason}
-              onChange={e => setRequestReason(e.target.value)}
+              value={accessRequestReason}
+              onChange={e => setAccessRequestReason(e.target.value)}
               placeholder="请简要说明申请理由（可选）"
               rows={3}
               className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none resize-none"
@@ -1431,10 +1437,10 @@ export default function App() {
             <div className="flex gap-3 justify-center">
               <button
                 onClick={handleRequestAccess}
-                disabled={requestSubmitting}
+                disabled={accessRequestSubmitting}
                 className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:bg-slate-400"
               >
-                {requestSubmitting ? <><Loader2 size={16} className="animate-spin" /> 提交中...</> : <><Send size={16} /> 提交申请</>}
+                {accessRequestSubmitting ? <><Loader2 size={16} className="animate-spin" /> 提交中...</> : <><Send size={16} /> 提交申请</>}
               </button>
               <button
                 onClick={handleLogout}
