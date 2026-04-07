@@ -181,7 +181,7 @@ class FeishuAuthSettings(BaseModel):
     session_ttl_sec: int = Field(default=8 * 60 * 60, ge=300)
     cookie_secure: bool = False
     cookie_domain: str = ""
-    allowed_tenant_key: str = ""
+    allowed_tenant_keys: list[str] = Field(default_factory=list)
     allowed_emails: list[str] = Field(default_factory=list)
     allowed_open_ids: list[str] = Field(default_factory=list)
     admin_emails: list[str] = Field(default_factory=list)
@@ -201,7 +201,7 @@ def load_feishu_auth_settings() -> FeishuAuthSettings:
         session_ttl_sec=int(_env_get("FEISHU_SESSION_TTL_SEC", str(8 * 60 * 60))),
         cookie_secure=_env_get("FEISHU_COOKIE_SECURE", "").lower() in {"1", "true", "yes", "on"},
         cookie_domain=_env_get("FEISHU_COOKIE_DOMAIN", ""),
-        allowed_tenant_key=_env_get("FEISHU_ALLOWED_TENANT_KEY", ""),
+        allowed_tenant_keys=[item.strip() for item in _env_get("FEISHU_ALLOWED_TENANT_KEYS", "").split(",") if item.strip()],
         allowed_emails=[item.strip().lower() for item in _env_get("FEISHU_ALLOWED_EMAILS", "").split(",") if item.strip()],
         allowed_open_ids=[item.strip() for item in _env_get("FEISHU_ALLOWED_OPEN_IDS", "").split(",") if item.strip()],
         admin_emails=[item.strip().lower() for item in _env_get("FEISHU_ADMIN_EMAILS", "").split(",") if item.strip()],
@@ -472,11 +472,13 @@ class FeishuAuthService:
         return urljoin(self._settings.frontend_base_url.rstrip("/") + "/", normalized.lstrip("/"))
 
     def _is_allowed(self, user: FeishuUser) -> bool:
-        # Tenant-level restriction: only users from the specified enterprise
-        if self._settings.allowed_tenant_key and user.tenant_key != self._settings.allowed_tenant_key:
+        # 1. tenant_key 校验：配置了则只允许指定企业的用户（支持多个）
+        if self._settings.allowed_tenant_keys and user.tenant_key not in self._settings.allowed_tenant_keys:
             return False
+        # 2. open_id 白名单
         if self._settings.allowed_open_ids and user.open_id not in self._settings.allowed_open_ids:
             return False
+        # 3. email 白名单
         allowed_emails = self._settings.allowed_emails
         if not allowed_emails:
             return True
