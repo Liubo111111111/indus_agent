@@ -587,30 +587,29 @@ class FeishuAuthService:
         return urljoin(self._settings.frontend_base_url.rstrip("/") + "/", normalized.lstrip("/"))
 
     def _is_allowed(self, user: FeishuUser) -> bool:
-        # 1. tenant_key 校验：配置了则只允许指定企业的用户（支持多个）
-        if self._settings.allowed_tenant_keys and user.tenant_key not in self._settings.allowed_tenant_keys:
-            # 即使 tenant 不匹配，也检查是否已被管理员批准
-            req_status = self._audit_store.get_access_request_status(user.open_id)
-            if req_status != "approved":
-                return False
+        # 管理员始终放行
+        if self.is_admin(user):
+            return True
+        # 1. tenant_key 白名单（配置了才检查）
+        if self._settings.allowed_tenant_keys and user.tenant_key in self._settings.allowed_tenant_keys:
+            return True
         # 2. open_id 白名单
-        if self._settings.allowed_open_ids and user.open_id not in self._settings.allowed_open_ids:
-            req_status = self._audit_store.get_access_request_status(user.open_id)
-            if req_status != "approved":
-                return False
+        if self._settings.allowed_open_ids and user.open_id in self._settings.allowed_open_ids:
+            return True
         # 3. email 白名单
-        allowed_emails = self._settings.allowed_emails
-        if not allowed_emails:
-            return True
-        email_candidates = {
-            user.email.strip().lower(),
-            user.enterprise_email.strip().lower(),
-        }
-        if any(email and email in allowed_emails for email in email_candidates):
-            return True
-        # 最后检查是否被管理员批准
+        if self._settings.allowed_emails:
+            email_candidates = {
+                user.email.strip().lower(),
+                user.enterprise_email.strip().lower(),
+            }
+            if any(email and email in self._settings.allowed_emails for email in email_candidates):
+                return True
+        # 4. 管理员手动批准
         req_status = self._audit_store.get_access_request_status(user.open_id)
-        return req_status == "approved"
+        if req_status == "approved":
+            return True
+        # 默认拒绝
+        return False
 
     def authenticate_with_code(self, code: str, state: str) -> tuple[FeishuUser, str]:
         if not self.enabled:
