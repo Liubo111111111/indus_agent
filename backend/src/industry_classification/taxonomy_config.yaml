@@ -2,8 +2,8 @@ version: v1
 labels:
   - id: car_rental
     display_name: 汽车租赁
-    short_description: 汽车租赁、网约车、货运司机、运力、出行相关企业
-    prompt_text: 汽车租赁、网约车、货运司机、运力、出行相关企业。
+    short_description: 汽车租赁、网约车、货运司机、货车运输、运力、出行相关企业
+    prompt_text: 汽车租赁、网约车、货运司机、货车运输、道路货物运输、运力调度、出行服务相关企业。企业名称或经营范围含"汽车服务"、"汽车租赁"、"道路货物运输"、"货运"等关键词，且招聘岗位以司机类（货运司机、网约车司机、代驾等）为主的企业应归入此类。
     enabled: true
   - id: entertainment_services
     display_name: 娱乐服务
@@ -17,18 +17,18 @@ labels:
     enabled: true
   - id: domestic_services
     display_name: 家政服务
-    short_description: 保姆、月嫂、育儿嫂、钟点工、家庭保洁、收纳相关企业
-    prompt_text: 保姆、月嫂、育儿嫂、钟点工、家庭保洁、收纳相关企业。
+    short_description: 保姆、月嫂、育儿嫂、钟点工、保洁（含家庭及商业场景）、收纳相关企业
+    prompt_text: 保姆、月嫂、育儿嫂、钟点工、保洁、收纳相关企业。当企业招聘岗位以保洁类（家政保洁、清洁工、保洁员等）为核心时，无论服务场景是家庭、写字楼、机场还是商业综合体，均应优先归入家政服务。仅当企业同时自主运营物业项目（如小区物业、园区物业）且保洁只是物业管理的附属职能时，才归入物业管理。
     enabled: true
   - id: property_management
     display_name: 物业管理
-    short_description: 小区、写字楼、园区、商业综合体物业运营及配套秩序保洁维修企业
-    prompt_text: 小区、写字楼、园区、商业综合体物业运营，以及与之配套的秩序、保洁、维修相关企业。
+    short_description: 小区、写字楼、园区、商业综合体物业运营及配套秩序维修企业
+    prompt_text: 小区、写字楼、园区、商业综合体物业运营，以及与之配套的秩序维护、设施维修相关企业。核心特征是企业自主承接并运营物业管理项目，物业服务类维护等多元物业职能。如果企业招聘岗位高度集中于保洁类岗位，即使服务于商业场景（机场、写字楼等），也应优先归入"家政服务"而非本类。
     enabled: true
   - id: order_taking_platform
     display_name: 接单类平台
-    short_description: 平台撮合、派单、接单及围绕上门维修安装保洁家政网络组织的企业
-    prompt_text: 平台撮合、派单、接单，以及围绕上门维修、安装、保洁、家政网络组织的接单型平台企业。
+    short_description: 平台撮合、派单、接单及围绕上门维修安装家政网络组织的企业
+    prompt_text: 平台撮合、派单、接单，以及围绕上门维修、安装、家政网络组织的接单型平台企业。
     enabled: true
   - id: security_services
     display_name: 安保服务
@@ -42,8 +42,8 @@ labels:
     enabled: true
   - id: delivery_riders
     display_name: 骑手配送
-    short_description: 外卖、同城、站点配送、跑腿、骑手运力相关企业
-    prompt_text: 外卖、同城、站点配送、跑腿、骑手运力相关企业。
+    short_description: 外卖骑手、同城即时配送、站点配送、跑腿相关企业
+    prompt_text: 外卖骑手、同城即时配送、站点配送、跑腿、快递末端配送相关企业。核心特征是以两轮电动车/摩托车为主要运力的即时配送场景。货车司机、道路货物运输类企业不属于此类，应归入"汽车租赁"。
     enabled: true
   - id: catering_services
     display_name: 餐饮服务

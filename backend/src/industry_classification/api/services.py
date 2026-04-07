@@ -91,28 +91,35 @@ class _SqliteResultReader:
             return conn.execute(
                 """
                 select
-                    run_id,
-                    entity_key,
-                    route,
-                    error_type,
-                    wide_row_json,
-                    static_profile_json,
-                    dynamic_profile_json,
-                    decision_record_json,
-                    timing_ms_json,
-                    feature_schema_version,
-                    taxonomy_version,
-                    graph_version,
-                    prompt_version_static,
-                    prompt_version_dynamic,
-                    prompt_version_final,
-                    model_version_static,
-                    model_version_dynamic,
-                    model_version_final,
-                    created_at,
-                    updated_at
-                from pipeline_runs
-                order by updated_at desc, run_id desc
+                    r.run_id,
+                    r.entity_key,
+                    r.route,
+                    r.error_type,
+                    r.wide_row_json,
+                    r.static_profile_json,
+                    r.dynamic_profile_json,
+                    r.decision_record_json,
+                    r.timing_ms_json,
+                    r.feature_schema_version,
+                    r.taxonomy_version,
+                    r.graph_version,
+                    r.prompt_version_static,
+                    r.prompt_version_dynamic,
+                    r.prompt_version_final,
+                    r.model_version_static,
+                    r.model_version_dynamic,
+                    r.model_version_final,
+                    r.created_at,
+                    r.updated_at
+                from pipeline_runs r
+                inner join (
+                    select entity_key, max(updated_at) as max_updated
+                    from pipeline_runs
+                    group by entity_key
+                ) latest
+                    on r.entity_key = latest.entity_key
+                   and r.updated_at = latest.max_updated
+                order by r.updated_at desc, r.run_id desc
                 """
             ).fetchall()
 

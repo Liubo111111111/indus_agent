@@ -429,6 +429,9 @@ const DetailView = ({
   const recentJobs = (wide.jobsRecent_20 || wide.jobs_recent_20 || wide.jobsRecent20 || []) as Array<Record<string, unknown>>;
   const totalJobCount = (wide.totalJobPostCnt_90d || wide.total_job_post_cnt_90d || wide.totalJobPostCnt90d || 0) as number;
   const distinctJobCount = (wide.distinctJobNameCnt_90d || wide.distinct_job_name_cnt_90d || wide.distinctJobNameCnt90d || 0) as number;
+  const authenticationTime = (wide.authenticationTime || wide.authentication_time || '') as string;
+  const latestPublishTime = (wide.latestPublishTime || wide.latest_publish_time || '') as string;
+  const latestPublishJobNames = (wide.latestPublishJobNames || wide.latest_publish_job_names || []) as string[];
   const sp = run.staticProfile as Record<string, unknown> | null;
   const dp = run.dynamicProfile as Record<string, unknown> | null;
   const timing = (run.timingMs || {}) as Record<string, number>;
@@ -496,6 +499,26 @@ const DetailView = ({
                 <div className="text-xs text-slate-400 mb-1">经营范围</div>
                 <div className="text-sm text-slate-600 leading-relaxed">{run.businessScope || '暂无数据'}</div>
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="text-xs text-slate-400 mb-1">企业认证时间</div>
+                  <div className="text-sm text-slate-700">{authenticationTime || '暂无数据'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-400 mb-1">最新发布时间</div>
+                  <div className="text-sm text-slate-700">{latestPublishTime || '暂无数据'}</div>
+                </div>
+              </div>
+              {latestPublishJobNames.length > 0 && (
+                <div>
+                  <div className="text-xs text-slate-400 mb-1">最新发布工种</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {latestPublishJobNames.map((name, i) => (
+                      <span key={i} className="px-2 py-0.5 text-xs rounded-md bg-slate-100 text-slate-700">{name}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -825,10 +848,7 @@ export default function App() {
   const [classifyJobName, setClassifyJobName] = useState('');
   const [jobNameDropdownOpen, setJobNameDropdownOpen] = useState(false);
   const [classifyBatchMode, setClassifyBatchMode] = useState<'job' | 'csv'>('job');
-  const [classifyPt, setClassifyPt] = useState(() => {
-    const d = new Date(); d.setDate(d.getDate() - 1);
-    return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
-  });
+  const [classifyPt, setClassifyPt] = useState('20260402');
   const [classifyCsvFile, setClassifyCsvFile] = useState<File | null>(null);
   const [classifySubmitting, setClassifySubmitting] = useState(false);
   const [classifyTaskId, setClassifyTaskId] = useState<string | null>(null);

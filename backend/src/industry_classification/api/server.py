@@ -112,8 +112,7 @@ def create_app(output_dir: Path | None = None) -> FastAPI:
 
         # Default pt to yesterday if not provided
         if not pt:
-            from datetime import datetime, timedelta
-            pt = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+            pt = "20260402"
 
         stages = [
             {"name": "ODPS 数据查询", "status": "pending", "elapsed_ms": None, "message": ""},

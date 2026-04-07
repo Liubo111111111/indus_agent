@@ -52,7 +52,29 @@ labeled AS (
             WHEN job_name LIKE '%骑手%'   OR job_name LIKE '%快递%'       THEN '骑手配送'
             -- 10. 餐饮服务
             WHEN job_name LIKE '%厨师%'   OR job_name LIKE '%服务员%'     THEN '餐饮服务'
-        END AS industry
+        END AS industry,
+        CASE
+            WHEN job_name LIKE '%网约车%'    THEN '网约车'
+            WHEN job_name LIKE '%货运司机%'  THEN '货运司机'
+            WHEN job_name LIKE '%按摩%'      THEN '按摩'
+            WHEN job_name LIKE '%足疗%'      THEN '足疗'
+            WHEN job_name LIKE '%主播%'      THEN '主播'
+            WHEN job_name LIKE '%直播运营%'  THEN '直播运营'
+            WHEN job_name LIKE '%保姆%'      THEN '保姆'
+            WHEN job_name LIKE '%月嫂%'      THEN '月嫂'
+            WHEN job_name LIKE '%物业管理%'  THEN '物业管理'
+            WHEN job_name LIKE '%保洁%'      THEN '保洁'
+            WHEN job_name LIKE '%家电维修%'  THEN '家电维修'
+            WHEN job_name LIKE '%家政保洁%'  THEN '家政保洁'
+            WHEN job_name LIKE '%保安%'      THEN '保安'
+            WHEN job_name LIKE '%押运%'      THEN '押运'
+            WHEN job_name LIKE '%钢筋%'      THEN '钢筋'
+            WHEN job_name LIKE '%泥瓦%'      THEN '泥瓦'
+            WHEN job_name LIKE '%骑手%'      THEN '骑手'
+            WHEN job_name LIKE '%快递%'      THEN '快递'
+            WHEN job_name LIKE '%厨师%'      THEN '厨师'
+            WHEN job_name LIKE '%服务员%'    THEN '服务员'
+        END AS job_keyword
     FROM job_exploded
     WHERE job_name LIKE '%网约车%'    OR job_name LIKE '%货运司机%'
        OR job_name LIKE '%按摩%'      OR job_name LIKE '%足疗%'
@@ -72,12 +94,13 @@ labeled AS (
 ranked AS (
     SELECT
         industry,
+        job_keyword,
         job_name,
         user_id,
         social_credit_code,
         feature_json,
         ROW_NUMBER() OVER(
-            PARTITION BY job_name
+            PARTITION BY job_keyword
             ORDER BY RAND()
         ) AS rn
     FROM labeled
@@ -89,6 +112,7 @@ ranked AS (
 -- ============================================================
 SELECT
     industry,
+    job_keyword,
     job_name,
     user_id,
     social_credit_code,
