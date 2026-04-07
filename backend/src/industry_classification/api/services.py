@@ -170,7 +170,7 @@ class _SqliteResultReader:
                     "confidence_level": decision.get("confidence_level"),
                     "route": row["route"],
                     "error_type": row["error_type"],
-                    "timestamp": None,
+                    "timestamp": row["created_at"],
                     "annotations": ann_list,
                 }
             )
@@ -1020,6 +1020,7 @@ _SETTINGS_ENV_MAP: dict[str, str] = {
     "worker_count": "WORKER_COUNT",
     "provider_rate_limit_per_minute": "PROVIDER_RATE_LIMIT_PER_MINUTE",
     "max_in_flight": "MAX_IN_FLIGHT",
+    "batch_max_rows": "BATCH_MAX_ROWS",
 }
 
 # Defaults for runtime params that are not in load_llm_settings()
@@ -1027,6 +1028,7 @@ _RUNTIME_DEFAULTS: dict[str, int] = {
     "worker_count": 4,
     "provider_rate_limit_per_minute": 120,
     "max_in_flight": 8,
+    "batch_max_rows": 5,
 }
 
 _ACCESS_SETTINGS_ENV_MAP: dict[str, str] = {
@@ -1075,6 +1077,11 @@ class SettingsService:
             max_in_flight=int(
                 env.get(
                     "MAX_IN_FLIGHT", str(_RUNTIME_DEFAULTS["max_in_flight"])
+                )
+            ),
+            batch_max_rows=int(
+                env.get(
+                    "BATCH_MAX_ROWS", str(_RUNTIME_DEFAULTS["batch_max_rows"])
                 )
             ),
         )

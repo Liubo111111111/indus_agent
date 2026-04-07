@@ -215,6 +215,7 @@ export interface SettingsResponse {
   workerCount: number;
   providerRateLimitPerMinute: number;
   maxInFlight: number;
+  batchMaxRows: number;
 }
 
 export interface SettingsUpdate {
@@ -224,6 +225,7 @@ export interface SettingsUpdate {
   workerCount?: number;
   providerRateLimitPerMinute?: number;
   maxInFlight?: number;
+  batchMaxRows?: number;
 }
 
 

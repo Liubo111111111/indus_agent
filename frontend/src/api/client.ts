@@ -105,7 +105,7 @@ export const api = {
       `/admin/access-requests${status ? `?status=${status}` : ''}`
     ),
 
-  reviewAccessRequest: (openId: string, action: 'approve' | 'reject', reviewerNote?: string) =>
+  reviewAccessRequest: (openId: string, action: 'approve' | 'reject' | 'revoke', reviewerNote?: string) =>
     request<{ openId: string; status: string }>(`/admin/access-requests/${encodeURIComponent(openId)}`, {
       method: 'PUT',
       body: JSON.stringify({ action, reviewer_note: reviewerNote || '' }),
@@ -177,6 +177,8 @@ export const api = {
   getTaxonomy: () => request<TaxonomyResponse>('/taxonomy'),
 
   getSettings: () => request<SettingsResponse>('/settings'),
+
+  getBatchConfig: () => request<{ batchMaxRows: number }>('/settings/batch-config'),
 
   getPrompts: () => request<Record<string, { version: string; systemPrompt: string; userTemplate: string } | null>>('/prompts'),
 

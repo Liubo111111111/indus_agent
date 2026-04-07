@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -110,7 +111,6 @@ def create_app(output_dir: Path | None = None) -> FastAPI:
         """单条分类：查询 ODPS 宽表 → 跑分类流水线，带阶段状态追踪。"""
         import time as _time
 
-        # Default pt to yesterday if not provided
         if not pt:
             pt = "20260402"
 
@@ -130,7 +130,6 @@ def create_app(output_dir: Path | None = None) -> FastAPI:
 
         def _run() -> None:
             try:
-                # Stage 0: ODPS query
                 _update(0, "running")
                 t0 = _time.perf_counter()
                 try:
@@ -163,13 +162,11 @@ def create_app(output_dir: Path | None = None) -> FastAPI:
                     _task_store[task_id]["error"] = str(exc)
                     return
 
-                # Stages 1-3: run pipeline
                 run_id = f"single-{task_id}"
                 from industry_classification.llm.client import HttpLLMClient
                 from industry_classification.main import run_once
                 llm_client = HttpLLMClient()
                 try:
-                    # Mark stages as running sequentially
                     for i in range(1, 4):
                         _update(i, "running")
                     state = run_once(
@@ -180,7 +177,6 @@ def create_app(output_dir: Path | None = None) -> FastAPI:
                         fallback_store=fallback_store,
                         sqlite_path=sqlite_path,
                     )
-                    # Extract timing from state
                     timing = state.timing_ms or {}
                     _update(1, "done", timing.get("static_profile"), "完成")
                     _update(2, "done", timing.get("dynamic_profile"), "完成")
@@ -196,6 +192,127 @@ def create_app(output_dir: Path | None = None) -> FastAPI:
                 _task_store[task_id]["error"] = str(exc)
 
         thread = threading.Thread(target=_run, daemon=True, name=f"classify-{task_id}")
+        thread.start()
+
+    def classify_job_fn(job_name_raw: str, task_id: str, pt: str = "") -> None:
+        """按工种批量分类：查询 ODPS 宽表 → 批量跑分类流水线（2 阶段，同 CSV）。"""
+        import time as _time
+
+        if not pt:
+            pt = "20260402"
+
+        stages = [
+            {"name": "ODPS 数据查询", "status": "pending", "elapsed_ms": None, "message": ""},
+            {"name": "批量分类", "status": "pending", "elapsed_ms": None, "message": ""},
+        ]
+        _task_store[task_id] = {"task_id": task_id, "status": "running", "stages": stages, "result_run_id": None, "error": None}
+
+        def _update(idx: int, status: str, elapsed: float | None = None, msg: str = "") -> None:
+            stages[idx]["status"] = status
+            if elapsed is not None:
+                stages[idx]["elapsed_ms"] = round(elapsed, 1)
+            stages[idx]["message"] = msg
+
+        def _run() -> None:
+            try:
+                _update(0, "running")
+                t0 = _time.perf_counter()
+                try:
+                    from industry_classification.data_fetcher import _get_odps_client, _WIDE_TABLE, _COLUMNS, _csv_row_to_wide_row
+                    odps = _get_odps_client()
+                    columns_str = ", ".join(_COLUMNS)
+
+                    job_names = [n.strip() for n in job_name_raw.replace("/", ",").replace("，", ",").split(",") if n.strip()]
+                    if not job_names:
+                        _update(0, "error", (_time.perf_counter() - t0) * 1000, "工种名称为空")
+                        _task_store[task_id]["status"] = "error"
+                        _task_store[task_id]["error"] = "工种名称为空"
+                        return
+
+                    like_clauses = " OR ".join(
+                        f"(top_job_names_json LIKE '%{name}%' OR jobs_recent_20_json LIKE '%{name}%' OR latest_publish_job_names_json LIKE '%{name}%')"
+                        for name in job_names
+                    )
+                    batch_limit = int(os.environ.get("BATCH_MAX_ROWS", "5"))
+                    sql = (
+                        f"SELECT {columns_str} FROM {_WIDE_TABLE} "
+                        f"WHERE pt = '{pt}' AND ({like_clauses}) "
+                        f"LIMIT {batch_limit};"
+                    )
+                    logger.info("Job classify SQL: %s", sql)
+                    rows = []
+                    with odps.execute_sql(sql).open_reader() as reader:
+                        for record in reader:
+                            row = {col.name: record.get_by_name(col.name) for col in record._columns}
+                            rows.append(row)
+                    if not rows:
+                        _update(0, "error", (_time.perf_counter() - t0) * 1000, f"未找到匹配工种的企业: {job_name_raw}")
+                        _task_store[task_id]["status"] = "error"
+                        _task_store[task_id]["error"] = f"未找到匹配工种的企业: {job_name_raw}"
+                        return
+                    _update(0, "done", (_time.perf_counter() - t0) * 1000, f"查到 {len(rows)} 条企业")
+                except Exception as exc:
+                    _update(0, "error", (_time.perf_counter() - t0) * 1000, str(exc))
+                    _task_store[task_id]["status"] = "error"
+                    _task_store[task_id]["error"] = str(exc)
+                    return
+
+                # Stage 1: batch classification
+                _update(1, "running", msg=f"开始分类 {len(rows)} 条...")
+                t1 = _time.perf_counter()
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                from industry_classification.llm.client import HttpLLMClient
+                from industry_classification.main import run_once
+
+                completed_cnt = 0
+                error_cnt = 0
+                last_error = ""
+                max_workers = min(8, len(rows))
+
+                def _classify_one(idx_row):
+                    idx, raw_row = idx_row
+                    wr = _csv_row_to_wide_row(raw_row)
+                    wide_index[wr["social_credit_code"]] = wr
+                    client = HttpLLMClient()
+                    try:
+                        run_once(
+                            row_dict=wr,
+                            run_id=f"job-{task_id}-{idx}",
+                            client=client,
+                            formal_store=formal_store,
+                            fallback_store=fallback_store,
+                            sqlite_path=sqlite_path,
+                        )
+                    finally:
+                        client.close()
+
+                with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                    futures = {pool.submit(_classify_one, (i, r)): i for i, r in enumerate(rows, 1)}
+                    for future in as_completed(futures):
+                        try:
+                            future.result()
+                            completed_cnt += 1
+                        except Exception as exc:
+                            error_cnt += 1
+                            last_error = str(exc)
+                            logger.error("Job classify %s item %d failed: %s", task_id, futures[future], exc, exc_info=True)
+                        _update(1, "running", msg=f"已完成 {completed_cnt + error_cnt}/{len(rows)}" + (f"，{error_cnt} 失败" if error_cnt else ""))
+
+                result_msg = f"完成 {completed_cnt} 条分类" + (f"，{error_cnt} 失败" if error_cnt else "")
+                if error_cnt and last_error:
+                    result_msg += f"\n错误: {last_error[:200]}"
+                _update(1, "done" if completed_cnt > 0 else "error", (_time.perf_counter() - t1) * 1000, result_msg)
+                _task_store[task_id]["status"] = "done" if completed_cnt > 0 else "error"
+                if error_cnt and completed_cnt == 0:
+                    _task_store[task_id]["error"] = f"全部 {error_cnt} 条分类失败: {last_error[:300]}"
+                _task_store[task_id]["result_run_id"] = None
+                logger.info("Job classify %s: completed %d/%d enterprises", task_id, completed_cnt, len(rows))
+            except Exception as exc:
+                logger.error("Job classify %s failed: %s", task_id, exc)
+                _task_store[task_id]["status"] = "error"
+                _task_store[task_id]["error"] = str(exc)
+
+        thread = threading.Thread(target=_run, daemon=True, name=f"job-{task_id}")
         thread.start()
 
     def classify_csv_fn(csv_path: str, task_id: str, total_rows: int, pt: str = "") -> None:
@@ -332,6 +449,7 @@ def create_app(output_dir: Path | None = None) -> FastAPI:
         batch_trigger_fn=batch_trigger_fn,
         classify_single_fn=classify_single_fn,
         classify_csv_fn=classify_csv_fn,
+        classify_job_fn=classify_job_fn,
     )
 
     # -- app --------------------------------------------------------------

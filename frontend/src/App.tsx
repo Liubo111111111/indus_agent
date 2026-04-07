@@ -366,7 +366,7 @@ const AnnotationDialog = ({
 
 
 // --- Access Requests Panel (Admin) ---
-const AccessRequestsPanel = ({ showToast }: { showToast: (msg: string, isError?: boolean) => void }) => {
+const AccessRequestsPanel = ({ showToast, onApproved }: { showToast: (msg: string, isError?: boolean) => void; onApproved?: () => void }) => {
   const [requests, setRequests] = useState<Array<{ openId: string; name: string; email: string; enterpriseEmail: string; tenantKey: string; reason: string; status: string; reviewerNote: string; createdAt: string; updatedAt: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('pending');
@@ -381,11 +381,12 @@ const AccessRequestsPanel = ({ showToast }: { showToast: (msg: string, isError?:
 
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
 
-  const handleReview = async (openId: string, action: 'approve' | 'reject') => {
+  const handleReview = async (openId: string, action: 'approve' | 'reject' | 'revoke') => {
     try {
       await api.reviewAccessRequest(openId, action);
-      showToast(action === 'approve' ? '已批准' : '已拒绝');
+      showToast(action === 'approve' ? '已批准' : action === 'revoke' ? '已撤销权限' : '已拒绝');
       fetchRequests();
+      if ((action === 'approve' || action === 'revoke') && onApproved) onApproved();
     } catch (e: any) {
       showToast(e.message || '操作失败', true);
     }
@@ -443,11 +444,23 @@ const AccessRequestsPanel = ({ showToast }: { showToast: (msg: string, isError?:
                       拒绝
                     </button>
                   </>
+                ) : req.status === 'approved' ? (
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
+                      已批准
+                    </span>
+                    <button
+                      onClick={() => handleReview(req.openId, 'revoke')}
+                      className="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg text-xs font-medium hover:bg-amber-100 transition-colors"
+                    >
+                      撤销权限
+                    </button>
+                  </div>
                 ) : (
                   <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
-                    req.status === 'approved' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'
+                    req.status === 'revoked' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-600'
                   }`}>
-                    {req.status === 'approved' ? '已批准' : '已拒绝'}
+                    {req.status === 'revoked' ? '已撤销' : '已拒绝'}
                   </span>
                 )}
               </div>
@@ -956,6 +969,7 @@ export default function App() {
   const [classifyResultRunId, setClassifyResultRunId] = useState<string | null>(null);
   const [classifyError, setClassifyError] = useState<string | null>(null);
   const classifyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [batchMaxRows, setBatchMaxRows] = useState(5);
 
   // Taxonomy
   const [taxonomy, setTaxonomy] = useState<TaxonomyResponse | null>(null);
@@ -1059,6 +1073,7 @@ export default function App() {
           workerCount: String(data.workerCount),
           providerRateLimitPerMinute: String(data.providerRateLimitPerMinute),
           maxInFlight: String(data.maxInFlight),
+          batchMaxRows: String(data.batchMaxRows),
         });
         setSettingsValidation({});
       })
@@ -1106,6 +1121,7 @@ export default function App() {
   // Load data on tab change
   useEffect(() => {
     if (!authReady) return;
+    if (activeTab === 'classify') { api.getBatchConfig().then(c => setBatchMaxRows(c.batchMaxRows)).catch(() => {}); }
     if (activeTab === 'dashboard') { fetchStats(); }
     if (activeTab === 'review-list') { fetchRuns(0); fetchTaxonomy(); }
     if (isAdmin && activeTab === 'admin-home') { fetchAdminOverview(); fetchAccessSettings(); fetchAuthAudit(); }
@@ -1196,12 +1212,14 @@ export default function App() {
     const workers = Number(settingsForm.workerCount);
     const rateLimit = Number(settingsForm.providerRateLimitPerMinute);
     const maxFlight = Number(settingsForm.maxInFlight);
+    const batchMax = Number(settingsForm.batchMaxRows);
     if (!settingsForm.llmModel?.trim()) errors.llmModel = '模型名称不能为空';
     if (isNaN(timeout) || timeout <= 0) errors.llmTimeoutSec = '超时时间必须大于 0';
     if (isNaN(retry) || retry < 0) errors.llmMaxRetry = '重试次数不能为负数';
     if (isNaN(workers) || workers < 1 || workers > 32) errors.workerCount = '工作线程数必须在 1-32 之间';
     if (isNaN(rateLimit) || rateLimit < 1) errors.providerRateLimitPerMinute = '限流次数必须大于 0';
     if (isNaN(maxFlight) || maxFlight < 1) errors.maxInFlight = '最大并发数必须大于 0';
+    if (isNaN(batchMax) || batchMax < 1 || batchMax > 100) errors.batchMaxRows = '单次最大条数必须在 1-100 之间';
     setSettingsValidation(errors);
     return Object.keys(errors).length === 0;
   };
@@ -1217,6 +1235,7 @@ export default function App() {
         workerCount: Number(settingsForm.workerCount),
         providerRateLimitPerMinute: Number(settingsForm.providerRateLimitPerMinute),
         maxInFlight: Number(settingsForm.maxInFlight),
+        batchMaxRows: Number(settingsForm.batchMaxRows),
       });
       setSettings(updated);
       setSettingsForm({
@@ -1226,6 +1245,7 @@ export default function App() {
         workerCount: String(updated.workerCount),
         providerRateLimitPerMinute: String(updated.providerRateLimitPerMinute),
         maxInFlight: String(updated.maxInFlight),
+        batchMaxRows: String(updated.batchMaxRows),
       });
       showToast('配置保存成功');
     } catch (e: any) {
@@ -1281,6 +1301,7 @@ export default function App() {
     { key: 'workerCount', label: '并发工作线程数', desc: '批量处理时的并行工作线程数 (1-32)', type: 'number' },
     { key: 'providerRateLimitPerMinute', label: '每分钟限流次数', desc: 'LLM Provider 每分钟最大请求数', type: 'number' },
     { key: 'maxInFlight', label: '最大并发任务数', desc: '同时进行中的最大 LLM 请求数', type: 'number' },
+    { key: 'batchMaxRows', label: '单次最大条数', desc: '按工种/CSV 批量分类时单次最大企业数 (1-100)', type: 'number' },
   ];
 
   const handleLogout = async () => {
@@ -1782,6 +1803,9 @@ export default function App() {
                         </div>
                       )}
                     </div>
+
+                    {/* 权限申请审批 */}
+                    <AccessRequestsPanel showToast={showToast} onApproved={fetchAccessSettings} />
                   </motion.div>
                 )}
 
@@ -1919,9 +1943,6 @@ export default function App() {
                       )}
                     </div>
 
-                    {/* 权限申请审批 */}
-                    <AccessRequestsPanel showToast={showToast} />
-
                   </>
                 )}
 
@@ -2008,6 +2029,7 @@ export default function App() {
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">标注状态</th>
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">置信度</th>
                                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">错误类型</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">创建日期</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
@@ -2065,6 +2087,9 @@ export default function App() {
                                         unknown_dynamic_profile_error: '动态画像异常',
                                         unknown_final_decision_error: '最终裁决异常',
                                       }[item.errorType] ?? item.errorType}</span> : <span className="text-xs text-slate-400">-</span>}
+                                    </td>
+                                    <td className="px-6 py-4">
+                                      <span className="text-xs text-slate-500 font-mono">{item.timestamp ? new Date(item.timestamp).toLocaleString('zh-CN', { hour12: false }) : '-'}</span>
                                     </td>
                                   </tr>
                                 );
@@ -2215,7 +2240,7 @@ export default function App() {
                                 />
                               </div>
                             </div>
-                            <p className="text-xs text-slate-400">按工种名称从 ODPS 模糊匹配拉取企业，单次最多 100 条</p>
+                            <p className="text-xs text-slate-400">按工种名称从 ODPS 模糊匹配拉取企业，单次最多 {batchMaxRows} 条</p>
                             <button
                               onClick={async () => {
                                 if (!classifyJobName.trim()) return;
@@ -2246,7 +2271,7 @@ export default function App() {
                             <div className="flex gap-4 items-end">
                               <div className="flex-1">
                                 <label className="block text-sm font-medium text-slate-800 mb-2">上传 CSV 文件</label>
-                                <p className="text-xs text-slate-500 mb-3">CSV 需包含 social_credit_code 列，单次最多 100 条</p>
+                                <p className="text-xs text-slate-500 mb-3">CSV 需包含 social_credit_code 列，单次最多 {batchMaxRows} 条</p>
                               </div>
                               <div className="w-48">
                                 <label className="block text-sm font-medium text-slate-800 mb-2">业务日期 (pt)</label>

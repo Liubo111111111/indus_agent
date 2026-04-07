@@ -49,6 +49,7 @@ def create_router(
     batch_trigger_fn: Callable[[BatchRequest, str], Any] | None = None,
     classify_single_fn: Callable[[str, str], Any] | None = None,
     classify_csv_fn: Callable[[str, str, int], Any] | None = None,
+    classify_job_fn: Callable[[str, str, str], Any] | None = None,
 ) -> APIRouter:
     """Build and return an :class:`APIRouter` wired to the given services."""
 
@@ -92,7 +93,27 @@ def create_router(
 
     @router.get("/admin/access-settings", response_model=AccessSettingsResponse)
     def get_admin_access_settings(_user=Depends(require_admin)):
+        # 同步已批准申请的 openId 到白名单
         if auth is not None:
+            current = settings_service.get_access_settings()
+            approved = auth._audit_store.list_access_requests("approved")
+            approved_ids = [r["open_id"] for r in approved if r.get("open_id")]
+            missing = [oid for oid in approved_ids if oid not in current.allowed_open_ids]
+            if missing:
+                new_ids = current.allowed_open_ids + missing
+                from industry_classification.api.schemas import AccessSettingsUpdate as _ASU
+                settings_service.update_access_settings(_ASU(
+                    allowed_open_ids=new_ids,
+                    allowed_emails=current.allowed_emails,
+                    admin_open_ids=current.admin_open_ids,
+                    admin_emails=current.admin_emails,
+                ))
+                auth.apply_access_settings(
+                    allowed_open_ids=new_ids,
+                    allowed_emails=current.allowed_emails,
+                    admin_open_ids=current.admin_open_ids,
+                    admin_emails=current.admin_emails,
+                )
             return auth.get_access_settings_payload()
         return settings_service.get_access_settings()
 
@@ -183,17 +204,65 @@ def create_router(
 
     @router.put("/admin/access-requests/{open_id}")
     def review_access_request(open_id: str, body: dict, _user=Depends(require_admin)):
-        """管理员批准或拒绝权限申请"""
+        """管理员批准、拒绝或撤销权限申请"""
         if auth is None:
             raise HTTPException(status_code=503, detail="Auth not configured")
         action = body.get("action", "")
-        if action not in ("approve", "reject"):
-            raise HTTPException(status_code=400, detail="action must be 'approve' or 'reject'")
-        status = "approved" if action == "approve" else "rejected"
+        if action not in ("approve", "reject", "revoke"):
+            raise HTTPException(status_code=400, detail="action must be 'approve', 'reject' or 'revoke'")
+
+        if action == "revoke":
+            status = "revoked"
+        elif action == "approve":
+            status = "approved"
+        else:
+            status = "rejected"
+
         reviewer_note = body.get("reviewer_note", "")
         result = auth._audit_store.update_access_request(open_id, status, reviewer_note)
         if result is None:
             raise HTTPException(status_code=404, detail="Access request not found")
+
+        # 批准后自动将 openId 加入允许登录白名单
+        if action == "approve" and open_id:
+            current = settings_service.get_access_settings()
+            if open_id not in current.allowed_open_ids:
+                new_ids = current.allowed_open_ids + [open_id]
+                from industry_classification.api.schemas import AccessSettingsUpdate
+                settings_service.update_access_settings(AccessSettingsUpdate(
+                    allowed_open_ids=new_ids,
+                    allowed_emails=current.allowed_emails,
+                    admin_open_ids=current.admin_open_ids,
+                    admin_emails=current.admin_emails,
+                ))
+                if auth is not None:
+                    auth.apply_access_settings(
+                        allowed_open_ids=new_ids,
+                        allowed_emails=current.allowed_emails,
+                        admin_open_ids=current.admin_open_ids,
+                        admin_emails=current.admin_emails,
+                    )
+
+        # 撤销时从白名单移除 openId
+        if action == "revoke" and open_id:
+            current = settings_service.get_access_settings()
+            if open_id in current.allowed_open_ids:
+                new_ids = [oid for oid in current.allowed_open_ids if oid != open_id]
+                from industry_classification.api.schemas import AccessSettingsUpdate
+                settings_service.update_access_settings(AccessSettingsUpdate(
+                    allowed_open_ids=new_ids,
+                    allowed_emails=current.allowed_emails,
+                    admin_open_ids=current.admin_open_ids,
+                    admin_emails=current.admin_emails,
+                ))
+                if auth is not None:
+                    auth.apply_access_settings(
+                        allowed_open_ids=new_ids,
+                        allowed_emails=current.allowed_emails,
+                        admin_open_ids=current.admin_open_ids,
+                        admin_emails=current.admin_emails,
+                    )
+
         return result
 
     # -- stats ------------------------------------------------------------
@@ -280,6 +349,12 @@ def create_router(
     def get_settings(_user=Depends(require_admin)):
         return settings_service.get_settings()
 
+    @router.get("/settings/batch-config")
+    def get_batch_config(_user=Depends(require_auth)):
+        """返回批量分类配置（非管理员也可读取）"""
+        s = settings_service.get_settings()
+        return {"batch_max_rows": s.batch_max_rows}
+
     @router.get("/prompts")
     def get_prompts(_user=Depends(require_admin)):
         """返回所有 prompt 模板内容。"""
@@ -309,9 +384,8 @@ def create_router(
     @router.post("/classify/by-job-name", status_code=202)
     def classify_by_job_name(req: ClassifyByJobNameRequest, _user=Depends(require_auth)):
         task_id = str(uuid.uuid4())
-        if classify_single_fn:
-            # 用 job_name 作为查询条件，后端会按工种模糊匹配拉取企业
-            classify_single_fn(f"job_name:{req.job_name}", task_id, req.pt)
+        if classify_job_fn:
+            classify_job_fn(req.job_name, task_id, req.pt)
         return {"task_id": task_id, "message": f"按工种批量分类已提交: {req.job_name}", "status": "accepted"}
 
     @router.get("/classify/status/{task_id}")

@@ -236,6 +236,7 @@ class SettingsResponse(BaseModel):
     worker_count: int
     provider_rate_limit_per_minute: int
     max_in_flight: int
+    batch_max_rows: int
 
 
 class SettingsUpdate(BaseModel):
@@ -245,6 +246,7 @@ class SettingsUpdate(BaseModel):
     worker_count: int | None = Field(default=None, ge=1, le=32)
     provider_rate_limit_per_minute: int | None = Field(default=None, ge=1)
     max_in_flight: int | None = Field(default=None, ge=1)
+    batch_max_rows: int | None = Field(default=None, ge=1, le=100)
 
 
 # --- 分类任务 ---
