@@ -371,6 +371,8 @@ class FeishuAuthService:
         user = self.get_current_user(request)
         if user is None:
             raise HTTPException(status_code=401, detail="Authentication required")
+        if not self._is_allowed(user):
+            raise HTTPException(status_code=403, detail="Access denied: your account is not authorized")
         return user
 
     def require_admin(self, request: Request) -> FeishuUser:
@@ -400,12 +402,15 @@ class FeishuAuthService:
     def get_session_payload(self, request: Request) -> dict[str, Any]:
         user = self.get_current_user(request)
         user_payload = None
+        access_denied = False
         if user is not None:
             user_payload = user.model_dump()
             user_payload["is_admin"] = self.is_admin(user)
+            access_denied = not self._is_allowed(user)
         return {
             "enabled": self.enabled,
             "authenticated": user is not None,
+            "access_denied": access_denied,
             "user": user_payload,
             "login_url": self.build_login_url("/") if self.enabled else None,
         }
@@ -498,8 +503,7 @@ class FeishuAuthService:
         user_access_token = self._exchange_code_for_access_token(code)
         user = self._fetch_user(user_access_token)
         print(f"[AUTH] Feishu login: name={user.name}, tenant_key={user.tenant_key}, open_id={user.open_id}, email={user.enterprise_email or user.email}")
-        if not self._is_allowed(user):
-            raise HTTPException(status_code=403, detail="User is not allowed to access this console")
+        # 不再在此处 403 拒绝，而是让用户登录成功，由 session 携带 allowed 状态
         return user, next_path
 
     def _exchange_code_for_access_token(self, code: str) -> str:

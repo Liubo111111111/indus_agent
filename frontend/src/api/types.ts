@@ -134,6 +134,7 @@ export interface AuthUser {
 export interface AuthSession {
   enabled: boolean;
   authenticated: boolean;
+  accessDenied?: boolean;
   user: AuthUser | null;
   loginUrl: string | null;
 }

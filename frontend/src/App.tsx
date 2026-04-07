@@ -1177,6 +1177,21 @@ export default function App() {
     { key: 'maxInFlight', label: '最大并发任务数', desc: '同时进行中的最大 LLM 请求数', type: 'number' },
   ];
 
+  const handleLogout = async () => {
+    try {
+      await api.logout();
+      setAuthSession(prev => prev ? { ...prev, authenticated: false, user: null } : prev);
+      setSelectedRun(null);
+      setSearchQuery('');
+      setSearchResults([]);
+      setAccountMenuOpen(false);
+      await fetchAuthSession();
+      showToast('已退出登录');
+    } catch (e: any) {
+      showToast(e.message || '退出登录失败', true);
+    }
+  };
+
   if (authLoading) {
     return (
       <FullScreenState
@@ -1227,6 +1242,25 @@ export default function App() {
     );
   }
 
+  if (authSession?.accessDenied) {
+    const userName = authSession?.user?.name || '未知用户';
+    const tenantKey = authSession?.user?.tenantKey || '';
+    return (
+      <FullScreenState
+        title="暂无访问权限"
+        description={`${userName}，你的账号尚未获得授权访问本系统。请联系管理员开通权限。${tenantKey ? `\n企业标识: ${tenantKey}` : ''}`}
+        action={(
+          <button
+            onClick={handleLogout}
+            className="inline-flex items-center gap-2 rounded-2xl bg-slate-200 px-6 py-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-300"
+          >
+            <LogOut size={16} /> 退出登录
+          </button>
+        )}
+      />
+    );
+  }
+
   const authUserName = authSession?.user?.name || '已登录用户';
   const authInitials = authUserName.slice(0, 2).toUpperCase();
   const authAvatarUrl = authSession?.user?.avatarUrl || '';
@@ -1245,21 +1279,6 @@ export default function App() {
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return value;
     return parsed.toLocaleString('zh-CN', { hour12: false });
-  };
-
-  const handleLogout = async () => {
-    try {
-      await api.logout();
-      setAuthSession(prev => prev ? { ...prev, authenticated: false, user: null } : prev);
-      setSelectedRun(null);
-      setSearchQuery('');
-      setSearchResults([]);
-      setAccountMenuOpen(false);
-      await fetchAuthSession();
-      showToast('已退出登录');
-    } catch (e: any) {
-      showToast(e.message || '退出登录失败', true);
-    }
   };
 
   return (

@@ -71,6 +71,7 @@ def create_router(
             return {
                 "enabled": False,
                 "authenticated": False,
+                "access_denied": False,
                 "user": None,
                 "login_url": None,
         }

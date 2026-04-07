@@ -146,6 +146,7 @@ class AuthUserResponse(BaseModel):
 class AuthSessionResponse(BaseModel):
     enabled: bool
     authenticated: bool
+    access_denied: bool = False
     user: AuthUserResponse | None = None
     login_url: str | None = None
 
