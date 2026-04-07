@@ -181,6 +181,7 @@ class FeishuAuthSettings(BaseModel):
     session_ttl_sec: int = Field(default=8 * 60 * 60, ge=300)
     cookie_secure: bool = False
     cookie_domain: str = ""
+    allowed_tenant_key: str = ""
     allowed_emails: list[str] = Field(default_factory=list)
     allowed_open_ids: list[str] = Field(default_factory=list)
     admin_emails: list[str] = Field(default_factory=list)
@@ -200,6 +201,7 @@ def load_feishu_auth_settings() -> FeishuAuthSettings:
         session_ttl_sec=int(_env_get("FEISHU_SESSION_TTL_SEC", str(8 * 60 * 60))),
         cookie_secure=_env_get("FEISHU_COOKIE_SECURE", "").lower() in {"1", "true", "yes", "on"},
         cookie_domain=_env_get("FEISHU_COOKIE_DOMAIN", ""),
+        allowed_tenant_key=_env_get("FEISHU_ALLOWED_TENANT_KEY", ""),
         allowed_emails=[item.strip().lower() for item in _env_get("FEISHU_ALLOWED_EMAILS", "").split(",") if item.strip()],
         allowed_open_ids=[item.strip() for item in _env_get("FEISHU_ALLOWED_OPEN_IDS", "").split(",") if item.strip()],
         admin_emails=[item.strip().lower() for item in _env_get("FEISHU_ADMIN_EMAILS", "").split(",") if item.strip()],
@@ -470,6 +472,9 @@ class FeishuAuthService:
         return urljoin(self._settings.frontend_base_url.rstrip("/") + "/", normalized.lstrip("/"))
 
     def _is_allowed(self, user: FeishuUser) -> bool:
+        # Tenant-level restriction: only users from the specified enterprise
+        if self._settings.allowed_tenant_key and user.tenant_key != self._settings.allowed_tenant_key:
+            return False
         if self._settings.allowed_open_ids and user.open_id not in self._settings.allowed_open_ids:
             return False
         allowed_emails = self._settings.allowed_emails
@@ -490,6 +495,7 @@ class FeishuAuthService:
         next_path = self._normalize_next_path(state_payload.get("next"))
         user_access_token = self._exchange_code_for_access_token(code)
         user = self._fetch_user(user_access_token)
+        print(f"[AUTH] Feishu login: name={user.name}, tenant_key={user.tenant_key}, open_id={user.open_id}, email={user.enterprise_email or user.email}")
         if not self._is_allowed(user):
             raise HTTPException(status_code=403, detail="User is not allowed to access this console")
         return user, next_path

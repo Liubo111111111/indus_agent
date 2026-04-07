@@ -1842,7 +1842,13 @@ export default function App() {
                                       </div>
                                     </td>
                                     <td className="px-6 py-4">
-                                      {item.errorType ? <span className="text-xs text-red-500 font-medium">{item.errorType}</span> : <span className="text-xs text-slate-400">-</span>}
+                                      {item.errorType ? <span className="text-xs text-red-500 font-medium">{{
+                                        parse_error: 'JSON 解析失败',
+                                        schema_validation_error: '结构校验失败',
+                                        unknown_static_profile_error: '静态画像异常',
+                                        unknown_dynamic_profile_error: '动态画像异常',
+                                        unknown_final_decision_error: '最终裁决异常',
+                                      }[item.errorType] ?? item.errorType}</span> : <span className="text-xs text-slate-400">-</span>}
                                     </td>
                                   </tr>
                                 );
@@ -1873,13 +1879,13 @@ export default function App() {
                     {/* Tab 切换 */}
                     <div className="flex gap-2">
                       <button
-                        onClick={() => setClassifyMode('single')}
+                        onClick={() => { setClassifyMode('single'); setClassifyTaskId(null); setClassifyStages([]); setClassifyTaskStatus(''); setClassifyResultRunId(null); setClassifyError(null); }}
                         className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-colors ${classifyMode === 'single' ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                       >
                         单条查询
                       </button>
                       <button
-                        onClick={() => setClassifyMode('batch')}
+                        onClick={() => { setClassifyMode('batch'); setClassifyTaskId(null); setClassifyStages([]); setClassifyTaskStatus(''); setClassifyResultRunId(null); setClassifyError(null); }}
                         className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-colors ${classifyMode === 'batch' ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                       >
                         批量导入
@@ -2021,53 +2027,70 @@ export default function App() {
                           </div>
                         ) : (
                           <div className="space-y-4">
-                            <div>
-                              <label className="block text-sm font-medium text-slate-800 mb-2">上传 CSV 文件</label>
-                              <p className="text-xs text-slate-500 mb-3">CSV 需包含 social_credit_code 列，单次最多 100 条</p>
-                          <div
-                            className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:border-blue-400 hover:bg-blue-50/30 transition-colors cursor-pointer"
-                            onClick={() => document.getElementById('csv-upload')?.click()}
-                            onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
-                            onDrop={e => {
-                              e.preventDefault(); e.stopPropagation();
-                              const f = e.dataTransfer.files[0];
-                              if (f && f.name.endsWith('.csv')) setClassifyCsvFile(f);
-                            }}
-                          >
-                            <Database size={32} className="mx-auto text-slate-400 mb-3" />
-                            {classifyCsvFile ? (
-                              <div>
-                                <div className="text-sm font-medium text-slate-900">{classifyCsvFile.name}</div>
-                                <div className="text-xs text-slate-500 mt-1">{(classifyCsvFile.size / 1024).toFixed(1)} KB</div>
+                            <div className="flex gap-4 items-end">
+                              <div className="flex-1">
+                                <label className="block text-sm font-medium text-slate-800 mb-2">上传 CSV 文件</label>
+                                <p className="text-xs text-slate-500 mb-3">CSV 需包含 social_credit_code 列，单次最多 100 条</p>
                               </div>
-                            ) : (
-                              <div>
-                                <div className="text-sm text-slate-600">点击选择或拖拽 CSV 文件到此处</div>
-                                <div className="text-xs text-slate-400 mt-1">支持 .csv 格式</div>
+                              <div className="w-48">
+                                <label className="block text-sm font-medium text-slate-800 mb-2">业务日期 (pt)</label>
+                                <input
+                                  value={classifyPt}
+                                  onChange={e => setClassifyPt(e.target.value)}
+                                  placeholder="yyyymmdd"
+                                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                />
                               </div>
-                            )}
-                          </div>
-                          <input id="csv-upload" type="file" accept=".csv" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) setClassifyCsvFile(f); }} />
-                        </div>
-                        <button
-                          onClick={async () => {
-                            if (!classifyCsvFile) return;
-                            setClassifySubmitting(true);
-                            try {
-                              const res = await api.classifyUploadCsv(classifyCsvFile);
-                              showToast(res.message);
-                              setClassifyCsvFile(null);
-                            } catch (e: any) {
-                              showToast(e.message || '上传失败', true);
-                            } finally {
-                              setClassifySubmitting(false);
-                            }
-                          }}
-                          disabled={classifySubmitting || !classifyCsvFile}
-                          className="px-6 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 disabled:bg-slate-300 transition-colors flex items-center gap-2"
-                        >
-                          {classifySubmitting ? <><Loader2 size={14} className="animate-spin" /> 上传中...</> : <><Send size={14} /> 开始批量分类</>}
-                        </button>
+                            </div>
+                            <div
+                              className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:border-blue-400 hover:bg-blue-50/30 transition-colors cursor-pointer"
+                              onClick={() => document.getElementById('csv-upload')?.click()}
+                              onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
+                              onDrop={e => {
+                                e.preventDefault(); e.stopPropagation();
+                                const f = e.dataTransfer.files[0];
+                                if (f && f.name.endsWith('.csv')) setClassifyCsvFile(f);
+                              }}
+                            >
+                              <Database size={32} className="mx-auto text-slate-400 mb-3" />
+                              {classifyCsvFile ? (
+                                <div>
+                                  <div className="text-sm font-medium text-slate-900">{classifyCsvFile.name}</div>
+                                  <div className="text-xs text-slate-500 mt-1">{(classifyCsvFile.size / 1024).toFixed(1)} KB</div>
+                                </div>
+                              ) : (
+                                <div>
+                                  <div className="text-sm text-slate-600">点击选择或拖拽 CSV 文件到此处</div>
+                                  <div className="text-xs text-slate-400 mt-1">支持 .csv 格式</div>
+                                </div>
+                              )}
+                            </div>
+                            <input id="csv-upload" type="file" accept=".csv" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) setClassifyCsvFile(f); }} />
+                            <button
+                              onClick={async () => {
+                                if (!classifyCsvFile) return;
+                                setClassifySubmitting(true);
+                                setClassifyTaskId(null);
+                                setClassifyStages([]);
+                                setClassifyTaskStatus('');
+                                setClassifyResultRunId(null);
+                                setClassifyError(null);
+                                try {
+                                  const res = await api.classifyUploadCsv(classifyCsvFile, classifyPt);
+                                  showToast(res.message);
+                                  setClassifyTaskId(res.taskId);
+                                  setClassifyCsvFile(null);
+                                } catch (e: any) {
+                                  showToast(e.message || '上传失败', true);
+                                } finally {
+                                  setClassifySubmitting(false);
+                                }
+                              }}
+                              disabled={classifySubmitting || !classifyCsvFile}
+                              className="px-6 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 disabled:bg-slate-300 transition-colors flex items-center gap-2"
+                            >
+                              {classifySubmitting ? <><Loader2 size={14} className="animate-spin" /> 上传中...</> : <><Send size={14} /> 开始批量分类</>}
+                            </button>
                           </div>
                         )}
                       </div>
@@ -2087,14 +2110,14 @@ export default function App() {
                             { name: '最终裁决', status: 'pending', elapsedMs: null as number | null, message: '' },
                           ];
                           const stages = classifyStages.length > 0 ? classifyStages : defaultStages;
-                          const stageIcons = [Database, FileText, Activity, BrainCircuit];
+                          const stageIconMap: Record<string, any> = { 'ODPS 数据查询': Database, '静态画像': FileText, '动态画像': Activity, '最终裁决': BrainCircuit, '批量分类': Activity };
                           const stageColors: Record<string, string> = { pending: 'bg-slate-300', running: 'bg-blue-500 animate-pulse', done: 'bg-emerald-500', error: 'bg-red-500' };
                           return (
                             <div className="relative">
                               <div className="absolute left-5 top-6 bottom-6 w-0.5 bg-slate-200" />
                               <div className="space-y-4">
                                 {stages.map((stage, idx) => {
-                                  const Icon = stageIcons[idx] || Database;
+                                  const Icon = stageIconMap[stage.name] || Database;
                                   return (
                                     <div key={idx} className="flex items-center gap-4 relative z-10">
                                       <div className={`w-10 h-10 rounded-full ${stageColors[stage.status] || 'bg-slate-300'} text-white flex items-center justify-center shadow-md ring-4 ring-white shrink-0 transition-all`}>
@@ -2119,15 +2142,24 @@ export default function App() {
                             </div>
                           );
                         })()}
-                        {classifyTaskStatus === 'done' && classifyResultRunId && (
+                        {classifyTaskStatus === 'done' && (
                           <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
                             <span className="text-sm text-emerald-600 font-medium">分类完成</span>
-                            <button
-                              onClick={() => { setSelectedRun(classifyResultRunId); setActiveTab('review-list'); }}
-                              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-                            >
-                              查看结果 <ChevronRight size={14} />
-                            </button>
+                            {classifyResultRunId ? (
+                              <button
+                                onClick={() => { setSelectedRun(classifyResultRunId); setActiveTab('review-list'); }}
+                                className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                              >
+                                查看结果 <ChevronRight size={14} />
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => { setActiveTab('review-list'); }}
+                                className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                              >
+                                查看列表 <ChevronRight size={14} />
+                              </button>
+                            )}
                           </div>
                         )}
                         {classifyTaskStatus === 'error' && classifyError && (

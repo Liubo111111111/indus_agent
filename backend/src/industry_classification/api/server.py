@@ -198,18 +198,30 @@ def create_app(output_dir: Path | None = None) -> FastAPI:
         thread = threading.Thread(target=_run, daemon=True, name=f"classify-{task_id}")
         thread.start()
 
-    def classify_csv_fn(csv_path: str, task_id: str, total_rows: int) -> None:
+    def classify_csv_fn(csv_path: str, task_id: str, total_rows: int, pt: str = "") -> None:
         """批量分类：从 CSV 读取信用代码列表 → 查询 ODPS → 跑分类流水线。"""
+        import time as _time
+
+        stages = [
+            {"name": "ODPS 数据查询", "status": "pending", "elapsed_ms": None, "message": ""},
+            {"name": "批量分类", "status": "pending", "elapsed_ms": None, "message": ""},
+        ]
+        _task_store[task_id] = {"task_id": task_id, "status": "running", "stages": stages, "result_run_id": None, "error": None}
+
+        def _update(idx: int, status: str, elapsed: float | None = None, msg: str = "") -> None:
+            stages[idx]["status"] = status
+            if elapsed is not None:
+                stages[idx]["elapsed_ms"] = round(elapsed, 1)
+            stages[idx]["message"] = msg
+
         def _run() -> None:
             try:
                 import csv as csv_mod
                 from datetime import datetime, timedelta
                 logger.info("CSV classify %s: reading %d rows from %s", task_id, total_rows, csv_path)
 
-                # Default pt to yesterday
-                default_pt = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+                default_pt = pt if pt else (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
 
-                # 读取 CSV 中的信用代码
                 codes: list[str] = []
                 with open(csv_path, "r", encoding="utf-8") as f:
                     reader = csv_mod.DictReader(f)
@@ -219,53 +231,91 @@ def create_app(output_dir: Path | None = None) -> FastAPI:
                             codes.append(code)
 
                 if not codes:
-                    logger.warning("CSV classify %s: no valid social_credit_code found", task_id)
+                    _update(0, "error", msg="CSV 中未找到有效的 social_credit_code")
+                    _task_store[task_id]["status"] = "error"
+                    _task_store[task_id]["error"] = "CSV 中未找到有效的 social_credit_code"
                     return
 
-                logger.info("CSV classify %s: querying ODPS for %d enterprises", task_id, len(codes))
-                from industry_classification.data_fetcher import _get_odps_client, _WIDE_TABLE, _COLUMNS, _csv_row_to_wide_row
+                # Stage 0: ODPS query
+                _update(0, "running", msg=f"查询 {len(codes)} 条企业数据...")
+                t0 = _time.perf_counter()
+                try:
+                    from industry_classification.data_fetcher import _get_odps_client, _WIDE_TABLE, _COLUMNS, _csv_row_to_wide_row
 
-                odps = _get_odps_client()
-                columns_str = ", ".join(_COLUMNS)
-                codes_str = ", ".join(f"'{c}'" for c in codes)
-                sql = (
-                    f"SELECT {columns_str} FROM {_WIDE_TABLE} "
-                    f"WHERE pt = '{default_pt}' AND social_credit_code IN ({codes_str});"
-                )
-                rows = []
-                with odps.execute_sql(sql).open_reader() as reader:
-                    for record in reader:
-                        row = {col.name: record.get_by_name(col.name) for col in record._columns}
-                        rows.append(row)
+                    odps = _get_odps_client()
+                    columns_str = ", ".join(_COLUMNS)
+                    codes_str = ", ".join(f"'{c}'" for c in codes)
+                    sql = (
+                        f"SELECT {columns_str} FROM {_WIDE_TABLE} "
+                        f"WHERE pt = '{default_pt}' AND social_credit_code IN ({codes_str});"
+                    )
+                    rows = []
+                    with odps.execute_sql(sql).open_reader() as reader:
+                        for record in reader:
+                            row = {col.name: record.get_by_name(col.name) for col in record._columns}
+                            rows.append(row)
 
-                if not rows:
-                    logger.warning("CSV classify %s: no ODPS data found", task_id)
+                    if not rows:
+                        _update(0, "error", (_time.perf_counter() - t0) * 1000, "ODPS 未查到匹配数据")
+                        _task_store[task_id]["status"] = "error"
+                        _task_store[task_id]["error"] = "ODPS 未查到匹配数据"
+                        return
+                    _update(0, "done", (_time.perf_counter() - t0) * 1000, f"查到 {len(rows)} 条企业")
+                except Exception as exc:
+                    _update(0, "error", (_time.perf_counter() - t0) * 1000, str(exc))
+                    _task_store[task_id]["status"] = "error"
+                    _task_store[task_id]["error"] = str(exc)
                     return
 
-                # 转换并跑分类
+                # Stage 1: batch classification
+                _update(1, "running", msg=f"开始分类 {len(rows)} 条...")
+                t1 = _time.perf_counter()
+                from concurrent.futures import ThreadPoolExecutor, as_completed
                 from industry_classification.llm.client import HttpLLMClient
                 from industry_classification.main import run_once
 
-                llm_client = HttpLLMClient()
-                try:
-                    for idx, raw_row in enumerate(rows, 1):
-                        wide_row = _csv_row_to_wide_row(raw_row)
-                        wide_index[wide_row["social_credit_code"]] = wide_row
+                completed = 0
+                errors = 0
+                max_workers = min(8, len(rows))
+
+                def _classify_one(idx_row):
+                    idx, raw_row = idx_row
+                    wide_row = _csv_row_to_wide_row(raw_row)
+                    wide_index[wide_row["social_credit_code"]] = wide_row
+                    client = HttpLLMClient()
+                    try:
                         run_once(
                             row_dict=wide_row,
                             run_id=f"csv-{task_id}-{idx}",
-                            client=llm_client,
+                            client=client,
                             formal_store=formal_store,
                             fallback_store=fallback_store,
                             sqlite_path=sqlite_path,
                         )
-                        logger.info("CSV classify %s: %d/%d done", task_id, idx, len(rows))
-                finally:
-                    llm_client.close()
+                    finally:
+                        client.close()
+                    return idx
 
+                with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                    futures = {pool.submit(_classify_one, (idx, raw_row)): idx for idx, raw_row in enumerate(rows, 1)}
+                    for future in as_completed(futures):
+                        try:
+                            future.result()
+                            completed += 1
+                        except Exception as exc:
+                            errors += 1
+                            logger.error("CSV classify %s item %d failed: %s", task_id, futures[future], exc)
+                        _update(1, "running", msg=f"已完成 {completed + errors}/{len(rows)}" + (f"，{errors} 失败" if errors else ""))
+                        logger.info("CSV classify %s: %d/%d done", task_id, completed + errors, len(rows))
+
+                _update(1, "done", (_time.perf_counter() - t1) * 1000, f"完成 {completed} 条分类" + (f"，{errors} 失败" if errors else ""))
+                _task_store[task_id]["status"] = "done"
+                _task_store[task_id]["result_run_id"] = None
                 logger.info("CSV classify %s: completed %d enterprises", task_id, len(rows))
             except Exception as exc:
                 logger.error("CSV classify %s failed: %s", task_id, exc)
+                _task_store[task_id]["status"] = "error"
+                _task_store[task_id]["error"] = str(exc)
 
         thread = threading.Thread(target=_run, daemon=True, name=f"csv-{task_id}")
         thread.start()

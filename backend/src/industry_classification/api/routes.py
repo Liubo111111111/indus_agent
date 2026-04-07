@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Callable
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from industry_classification.api.auth import FeishuAuthService
@@ -114,9 +114,14 @@ def create_router(
 
     @router.get("/auth/callback")
     def auth_callback(code: str, state: str):
+        print(f"[AUTH] callback hit: code={code[:8]}..., auth={auth is not None}")
         if auth is None:
             raise HTTPException(status_code=503, detail="Feishu auth is not configured")
-        user, next_path = auth.authenticate_with_code(code, state)
+        try:
+            user, next_path = auth.authenticate_with_code(code, state)
+        except Exception as e:
+            print(f"[AUTH] callback error: {e}")
+            raise
         auth.record_auth_event("login", user)
         response = RedirectResponse(auth.build_frontend_redirect(next_path), status_code=302)
         response.set_cookie(
@@ -280,7 +285,7 @@ def create_router(
         return task
 
     @router.post("/classify/upload", status_code=202)
-    async def classify_upload(file: UploadFile = File(...), _user=Depends(require_auth)):
+    async def classify_upload(file: UploadFile = File(...), pt: str = Form(""), _user=Depends(require_auth)):
         import csv
         import io
         import tempfile
@@ -301,7 +306,7 @@ def create_router(
         tmp_path.write_bytes(content)
 
         if classify_csv_fn:
-            classify_csv_fn(str(tmp_path), task_id, len(rows))
+            classify_csv_fn(str(tmp_path), task_id, len(rows), pt)
 
         return ClassifyBatchUploadAccepted(
             task_id=task_id,

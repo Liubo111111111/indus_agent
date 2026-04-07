@@ -40,22 +40,23 @@ class FinalDecisionPromptBuilder:
         if not budget.allowed:
             raise ValueError(budget.reason or "final_prompt_budget_rejected")
         asset = load_prompt_asset("final_decision", version=self.prompt_version)
+        user_content = asset.user_template.format(
+            enterprise_name=state.wide_row.enterprise_name,
+            authentication_time=payload['authentication_time'],
+            latest_publish_time=payload['latest_publish_time'],
+            latest_publish_job_names_json=json.dumps(payload['latest_publish_job_names'], ensure_ascii=False),
+            static_summary=state.static_profile.summary,
+            static_top3_labels_json=json.dumps(payload['static_top3_labels'], ensure_ascii=False, indent=2),
+            dynamic_summary=state.dynamic_profile.summary,
+            dynamic_core_jobs_json=json.dumps(payload['dynamic_core_jobs'], ensure_ascii=False, indent=2),
+            dynamic_scene=state.dynamic_profile.scene,
+            dynamic_continuity=state.dynamic_profile.continuity,
+            taxonomy_json=json.dumps(payload['taxonomy'], ensure_ascii=False, indent=2),
+        ).strip()
         prompt = (
             f"[TASK: final_decision]\n"
             f"[SYSTEM]\n{asset.system_prompt.strip()}\n\n"
             f"[USER]\n"
-            f"{asset.user_template.format(
-                enterprise_name=state.wide_row.enterprise_name,
-                authentication_time=payload['authentication_time'],
-                latest_publish_time=payload['latest_publish_time'],
-                latest_publish_job_names_json=json.dumps(payload['latest_publish_job_names'], ensure_ascii=False),
-                static_summary=state.static_profile.summary,
-                static_top3_labels_json=json.dumps(payload['static_top3_labels'], ensure_ascii=False, indent=2),
-                dynamic_summary=state.dynamic_profile.summary,
-                dynamic_core_jobs_json=json.dumps(payload['dynamic_core_jobs'], ensure_ascii=False, indent=2),
-                dynamic_scene=state.dynamic_profile.scene,
-                dynamic_continuity=state.dynamic_profile.continuity,
-                taxonomy_json=json.dumps(payload['taxonomy'], ensure_ascii=False, indent=2),
-            ).strip()}"
+            f"{user_content}"
         )
         return prompt, payload

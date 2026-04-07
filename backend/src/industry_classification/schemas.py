@@ -4,6 +4,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# 所有可能的 error_type 枚举值
+ErrorType = Literal[
+    "parse_error",                   # LLM 返回非 JSON，解析失败
+    "schema_validation_error",       # JSON 结构不符合 Pydantic schema
+    "unknown_static_profile_error",  # 静态画像节点未知异常
+    "unknown_dynamic_profile_error", # 动态画像节点未知异常
+    "unknown_final_decision_error",  # 最终裁决节点未知异常
+]
+
 
 class JobFact(BaseModel):
     model_config = ConfigDict(extra="forbid")

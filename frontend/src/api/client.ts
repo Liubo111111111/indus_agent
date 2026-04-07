@@ -186,12 +186,13 @@ export const api = {
       `/classify/status/${encodeURIComponent(taskId)}`
     ),
 
-  classifyUploadCsv: async (file: File): Promise<{ taskId: string; message: string; totalRows: number; status: string }> => {
+  classifyUploadCsv: async (file: File, pt?: string): Promise<{ taskId: string; message: string; totalRows: number; status: string }> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 60_000);
     try {
       const formData = new FormData();
       formData.append('file', file);
+      if (pt) formData.append('pt', pt);
       const resp = await fetch(`${BASE_URL}/classify/upload`, {
         method: 'POST',
         body: formData,

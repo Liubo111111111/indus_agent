@@ -26,15 +26,16 @@ class StaticProfilePromptBuilder:
             ],
         }
         asset = load_prompt_asset("static_profile", version=self.prompt_version)
+        user_content = asset.user_template.format(
+            enterprise_name=state.wide_row.enterprise_name,
+            business_scope=state.wide_row.business_scope or '无',
+            authentication_time=payload['authentication_time'],
+            taxonomy_json=json.dumps(payload['taxonomy'], ensure_ascii=False, indent=2),
+        ).strip()
         prompt = (
             f"[TASK: static_profile]\n"
             f"[SYSTEM]\n{asset.system_prompt.strip()}\n\n"
             f"[USER]\n"
-            f"{asset.user_template.format(
-                enterprise_name=state.wide_row.enterprise_name,
-                business_scope=state.wide_row.business_scope or '无',
-                authentication_time=payload['authentication_time'],
-                taxonomy_json=json.dumps(payload['taxonomy'], ensure_ascii=False, indent=2),
-            ).strip()}"
+            f"{user_content}"
         )
         return prompt, payload

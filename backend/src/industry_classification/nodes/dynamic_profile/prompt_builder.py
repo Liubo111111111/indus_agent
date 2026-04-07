@@ -24,17 +24,18 @@ class DynamicProfilePromptBuilder:
         if not budget.allowed:
             raise ValueError(budget.reason or "dynamic_prompt_budget_rejected")
         asset = load_prompt_asset("dynamic_profile", version=self.prompt_version)
+        user_content = asset.user_template.format(
+            total_job_post_cnt_90d=payload['total_job_post_cnt_90d'],
+            distinct_job_name_cnt_90d=payload['distinct_job_name_cnt_90d'],
+            latest_publish_time=payload['latest_publish_time'],
+            latest_publish_job_names_json=json.dumps(payload['latest_publish_job_names'], ensure_ascii=False),
+            top_job_names_json=json.dumps(payload['top_job_names'], ensure_ascii=False, indent=2),
+            jobs_recent_20_json=json.dumps(payload['jobs_recent_20'], ensure_ascii=False, indent=2),
+        ).strip()
         prompt = (
             f"[TASK: dynamic_profile]\n"
             f"[SYSTEM]\n{asset.system_prompt.strip()}\n\n"
             f"[USER]\n"
-            f"{asset.user_template.format(
-                total_job_post_cnt_90d=payload['total_job_post_cnt_90d'],
-                distinct_job_name_cnt_90d=payload['distinct_job_name_cnt_90d'],
-                latest_publish_time=payload['latest_publish_time'],
-                latest_publish_job_names_json=json.dumps(payload['latest_publish_job_names'], ensure_ascii=False),
-                top_job_names_json=json.dumps(payload['top_job_names'], ensure_ascii=False, indent=2),
-                jobs_recent_20_json=json.dumps(payload['jobs_recent_20'], ensure_ascii=False, indent=2),
-            ).strip()}"
+            f"{user_content}"
         )
         return prompt, payload
