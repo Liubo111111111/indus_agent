@@ -7,17 +7,29 @@ import yaml
 from dotenv import dotenv_values
 from pydantic import BaseModel, ConfigDict, Field
 
-# 读取 .env 文件（项目根目录），不接受进程环境变量覆盖
 _env_path = Path(__file__).resolve().parents[2] / ".env"
+
+
+def _env_candidates() -> list[Path]:
+    project_root = _env_path.parent
+    repo_root = project_root.parent
+    candidates = [_env_path]
+    fallback_env = repo_root / ".env"
+    if fallback_env != _env_path:
+        candidates.append(fallback_env)
+    return candidates
 
 
 @lru_cache(maxsize=1)
 def _load_env_values() -> dict[str, str]:
-    return {
-        key: value
-        for key, value in dotenv_values(_env_path).items()
-        if value is not None
-    }
+    for env_path in _env_candidates():
+        if env_path.exists():
+            return {
+                key: value
+                for key, value in dotenv_values(env_path).items()
+                if value is not None
+            }
+    return {}
 
 
 def _env_get(name: str, default: str = "") -> str:

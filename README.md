@@ -61,37 +61,27 @@ ODPS Wide Table (SQL)
 ## 项目结构
 
 ```
-├── sql/
-│   └── build_enterprise_industry_wide_table.sql   # ODPS 宽表 SQL
-├── src/industry_classification/
-│   ├── schemas.py              # 核心数据模型（WideRow, StaticProfile, DynamicProfile, DecisionRecord）
-│   ├── graph_state.py          # GraphState Pydantic 模型 + 初始化构建器
-│   ├── graph.py                # LangGraph 图定义和路由逻辑
-│   ├── main.py                 # 批量执行入口（dry-run / file-batch 模式）
-│   ├── settings.py             # Taxonomy 和 Prompt 资产加载器
-│   ├── taxonomy_config.yaml    # 11 个行业标签的单一配置源
-│   ├── loader.py               # JSON/JSONL 数据加载器
-│   ├── audit.py                # 审计记录 + Prompt 预算控制
-│   ├── cache.py                # 版本感知缓存键构建
-│   ├── rate_limit.py           # 分钟级 LLM 调用限流器
-│   ├── llm/
-│   │   ├── client.py           # LLMClient Protocol 定义
-│   │   └── result_handler.py   # LLM JSON 输出解析和校验
-│   ├── nodes/
-│   │   ├── static_profile/     # 静态画像节点（service / prompt_builder / parser）
-│   │   ├── dynamic_profile/    # 动态画像节点（service / prompt_builder / parser）
-│   │   └── final_decision/     # 最终裁决节点（service / prompt_builder / parser）
-│   ├── prompts/
-│   │   ├── static_profile_v1.yaml
-│   │   ├── dynamic_profile_v1.yaml
-│   │   └── final_decision_v1.yaml
-│   └── writers/
-│       ├── formal_output.py    # 高置信结果写入
-│       ├── fallback_output.py  # 低置信/错误结果写入
-│       └── jsonl_store.py      # JSONL 持久化存储
-└── tests/
-    ├── unit/                   # 单元测试
-    └── integration/            # 集成测试 + replay fixtures
+├── backend/                              # Python 后端工程
+│   ├── src/industry_classification/      # 后端应用源码
+│   ├── tests/                            # 后端单元/集成测试
+│   ├── scripts/                          # 后端运维脚本
+│   ├── sql/                              # 后端相关 SQL
+│   ├── output/                           # 后端运行输出
+│   ├── pyproject.toml
+│   └── .env.example
+├── frontend/                             # React + Vite 前端控制台
+│   ├── src/
+│   │   ├── api/                         # 前端 API client 与类型定义
+│   │   ├── App.tsx
+│   │   └── main.tsx
+│   ├── package.json
+│   └── vite.config.ts
+├── docs/
+│   ├── backlog/                         # 待办与后续治理事项
+│   ├── context/                         # 业务背景、构想、参考资料
+│   ├── plans/
+│   ├── requirements/
+│   └── runbooks/
 ```
 
 ## 环境要求
@@ -106,7 +96,8 @@ ODPS Wide Table (SQL)
 git clone <repo-url>
 cd industry-classification
 
-# 创建虚拟环境
+# 安装后端
+cd backend
 python -m venv .venv
 source .venv/bin/activate  # Linux/Mac
 # .venv\Scripts\activate   # Windows
@@ -115,12 +106,46 @@ source .venv/bin/activate  # Linux/Mac
 pip install -e ".[dev]"
 ```
 
-## 环境配置
-
-复制 `.env.example` 为 `.env`，填入实际密钥：
+### 前端安装
 
 ```bash
-cp .env.example .env
+cd ..
+cd frontend
+npm install
+```
+
+## 统一入口
+
+仓库根目录提供统一命令入口，默认从根目录执行：
+
+```bash
+# 后端 API 开发
+npm run dev:backend
+
+# 后端测试
+npm run test:backend
+npm run test:backend:unit
+npm run test:backend:integration
+
+# 后端 dry-run
+npm run dry-run:backend
+
+# 前端开发/检查/构建
+npm run dev:frontend
+npm run lint:frontend
+npm run build:frontend
+```
+
+说明：
+- 后端命令会自动切到 `backend/` 执行
+- 会优先使用 `backend/.venv`，其次回退到仓库根 `.venv`
+
+## 环境配置
+
+复制 `backend/.env.example` 为 `backend/.env`，填入实际密钥：
+
+```bash
+cp backend/.env.example backend/.env
 ```
 
 配置项说明：
@@ -147,6 +172,13 @@ cp .env.example .env
 使用内置样本数据验证流水线：
 
 ```bash
+npm run dry-run:backend
+```
+
+等价原生命令：
+
+```bash
+cd backend
 python -m industry_classification.main --pt 20260402 --mode dry-run
 ```
 
@@ -156,7 +188,7 @@ python -m industry_classification.main --pt 20260402 --mode dry-run
 
 ```bash
 # 拉取数据并转为 JSON
-python -m industry_classification.main --pt 20260402 --mode fetch --output-dir data/
+python -m industry_classification.main --pt 20260402 --mode fetch --output-dir output/data/
 
 # 限制条数（调试用）
 python -m industry_classification.main --pt 20260402 --mode fetch --max-rows 100
@@ -185,10 +217,10 @@ python -m industry_classification.main \
 
 ```bash
 # 单条测试
-python -m industry_classification.main --pt 20260402 --mode run-single --input-path data/wide_table_20260402.json
+python -m industry_classification.main --pt 20260402 --mode run-single --input-path output/data/wide_table_20260402.json
 
 # 批量运行
-python -m industry_classification.main --pt 20260402 --mode run --input-path data/wide_table_20260402.json
+python -m industry_classification.main --pt 20260402 --mode run --input-path output/data/wide_table_20260402.json
 ```
 
 ### File-Batch 模式（Mock 响应）
@@ -199,8 +231,8 @@ python -m industry_classification.main --pt 20260402 --mode run --input-path dat
 python -m industry_classification.main \
   --pt 20260402 \
   --mode file-batch \
-  --input-path data/enterprises.json \
-  --responses-path data/mock_responses.json \
+  --input-path output/data/enterprises.json \
+  --responses-path output/data/mock_responses.json \
   --output-dir output/ \
   --worker-count 4 \
   --provider-rate-limit-per-minute 120 \
@@ -245,16 +277,36 @@ python -m industry_classification.main \
 
 ```bash
 # 运行全部测试
-pytest -q
+npm run test:backend
 
 # 仅单元测试
-pytest tests/unit -q
+npm run test:backend:unit
 
 # 仅集成测试
-pytest tests/integration -q
+npm run test:backend:integration
+```
+
+等价原生命令：
+
+```bash
+cd backend
+pytest -q
 
 # 运行特定测试
 pytest -k "test_graph_routing" -q
+```
+
+### 前端开发与验证
+
+```bash
+# 启动前端开发服务
+npm run dev:frontend
+
+# 前端类型检查
+npm run lint:frontend
+
+# 前端生产构建
+npm run build:frontend
 ```
 
 ## 核心设计决策

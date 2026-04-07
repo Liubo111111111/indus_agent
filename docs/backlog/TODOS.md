@@ -2,7 +2,7 @@
 
 ## TODO 1: 固化正式 taxonomy contract
 - What: 把 11 类行业定义补成正式 `taxonomy contract`，补全 inclusion、exclusion、典型岗位、易混边界和 tie-break 规则。
-- Why: 当前 [业务知识库.md](C:\Users\ASUS\Desktop\indus_agent\业务知识库.md) 只有自然语言定义，没有足够硬的工程边界，长期会造成 prompt 漂移和跨节点不一致。
+- Why: 当前 `docs/context/业务知识库.md` 只有自然语言定义，没有足够硬的工程边界，长期会造成 prompt 漂移和跨节点不一致。
 - Pros: 分类更稳定，回归测试更清晰，静态画像/动态画像/最终裁决对标签的理解更一致。
 - Cons: 需要额外业务梳理和样本复盘，会拖慢短期 prompt 迭代速度。
 - Context: 在 `/plan-eng-review` 中已明确选择先开做，再边开发边补 taxonomy，因此这项工作被显式后延，但不能依赖口头记忆。

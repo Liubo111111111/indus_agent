@@ -45,6 +45,7 @@ import type {
   AdminAuthAudit,
   AdminOverview,
   AccessSettings,
+  AnnotationRecord,
   AuthSession,
   StatsResponse,
   RunSummary,
@@ -411,14 +412,15 @@ const DetailView = ({
   }
 
   const dr = run.decisionRecord || {} as Record<string, unknown>;
-  const annotations = (run.annotations || []) as Array<Record<string, unknown>>;
+  const annotations = (run.annotations || []) as Array<Record<string, unknown> | AnnotationRecord>;
   const latestAnnotation = annotations.length > 0 ? annotations[annotations.length - 1] : null;
+  const latestAnnotationRecord = (latestAnnotation || {}) as Record<string, unknown>;
   const modelConfLevel = (dr.confidenceLevel || dr.confidence_level || '') as string;
   const confInfo = confidenceLevelMap[modelConfLevel] || { num: 0, label: modelConfLevel || '未知', color: 'text-slate-500' };
   const modelLabel = (dr.finalLabel || dr.final_label || '未知') as string;
   // 将 taxonomy ID 转为中文 displayName
   const resolveLabel = (raw: string) => resolveLabelName(raw, taxonomyLabels);
-  const finalLabel = resolveLabel(((latestAnnotation?.annotatedLabel || latestAnnotation?.annotated_label) || modelLabel || '未知') as string);
+  const finalLabel = resolveLabel(((latestAnnotationRecord.annotatedLabel || latestAnnotationRecord.annotated_label) || modelLabel || '未知') as string);
   const decisionReason = (dr.decisionReason || dr.decision_reason || '') as string;
   const evidence = (dr.supportingEvidence || dr.supporting_evidence || []) as string[];
   const route = run.route || 'unknown';
@@ -719,10 +721,11 @@ const DetailView = ({
               {annotations.length > 0 ? (
                 <div className="space-y-3">
                   {annotations.map((ann, i) => {
-                    const label = resolveLabel((ann.annotatedLabel || ann.annotated_label || '') as string);
-                    const notes = (ann.reviewerNotes || ann.reviewer_notes || '') as string;
-                    const createdAt = (ann.createdAt || ann.created_at || '') as string;
-                    const reviewer = (ann.reviewerName || ann.reviewer_name || '') as string;
+                    const annRecord = ann as Record<string, unknown>;
+                    const label = resolveLabel((annRecord.annotatedLabel || annRecord.annotated_label || '') as string);
+                    const notes = (annRecord.reviewerNotes || annRecord.reviewer_notes || '') as string;
+                    const createdAt = (annRecord.createdAt || annRecord.created_at || '') as string;
+                    const reviewer = (annRecord.reviewerName || annRecord.reviewer_name || '') as string;
                     return (
                       <div key={i} className="bg-sky-50/60 border border-sky-100 rounded-lg p-3 space-y-1.5">
                         <div className="flex items-center justify-between">

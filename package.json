@@ -1,0 +1,15 @@
+{
+  "name": "indus-agent-workspace",
+  "private": true,
+  "scripts": {
+    "dev:backend": "node tools/backend-command.mjs -m uvicorn industry_classification.api.server:app --reload --port 8000",
+    "dry-run:backend": "node tools/backend-command.mjs -m industry_classification.main --pt 20260402 --mode dry-run",
+    "test:backend": "node tools/backend-command.mjs -m pytest -q",
+    "test:backend:unit": "node tools/backend-command.mjs -m pytest tests/unit -q",
+    "test:backend:integration": "node tools/backend-command.mjs -m pytest tests/integration -q",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "lint:frontend": "npm --prefix frontend run lint",
+    "build:frontend": "npm --prefix frontend run build",
+    "clean:frontend": "npm --prefix frontend run clean"
+  }
+}

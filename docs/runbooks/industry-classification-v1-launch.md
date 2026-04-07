@@ -2,7 +2,8 @@
 
 ## Environment
 - Use local `uv` environment only.
-- Install/sync: `uv sync --extra dev`
+- Backend root: `backend/`
+- Install/sync: `cd backend && uv sync --extra dev`
 
 ## Key Versions
 - `feature_schema_version`: `v1`
@@ -13,18 +14,18 @@
 - `prompt_version_final`: `v1`
 
 ## Prompt Assets
-- `src/industry_classification/prompts/static_profile_v1.yaml`
-- `src/industry_classification/prompts/dynamic_profile_v1.yaml`
-- `src/industry_classification/prompts/final_decision_v1.yaml`
+- `backend/src/industry_classification/prompts/static_profile_v1.yaml`
+- `backend/src/industry_classification/prompts/dynamic_profile_v1.yaml`
+- `backend/src/industry_classification/prompts/final_decision_v1.yaml`
 - Prompt builders load these files by `prompt_version` and render a `[TASK] + [SYSTEM] + [USER]` prompt envelope before calling the client.
 
 ## Commands
 - Run all tests:
-  - `uv run python -m pytest tests/unit tests/integration -v`
+  - `cd backend && uv run python -m pytest tests/unit tests/integration -v`
 - Run dry-run batch:
-  - `uv run python -m industry_classification.main --pt 20260402 --mode dry-run`
+  - `cd backend && uv run python -m industry_classification.main --pt 20260402 --mode dry-run`
 - Run file-backed local batch:
-  - `uv run python -m industry_classification.main --pt 20260402 --mode file-batch --input-path .\\input.jsonl --responses-path .\\responses.json --output-dir .\\output`
+  - `cd backend && uv run python -m industry_classification.main --pt 20260402 --mode file-batch --input-path .\\input.jsonl --responses-path .\\responses.json --output-dir .\\output`
 
 ## Expected Dry-Run Signals
 - Formal output count is greater than `0`
@@ -43,8 +44,8 @@
 - Fallback path: `<output-dir>/fallback_output.jsonl`
 - Batch summary: `<output-dir>/run_summary.json`
 - Replay fixtures:
-  - `tests/integration/fixtures/replay_cases.json`
-  - `tests/integration/fixtures/replay_expected.json`
+  - `backend/tests/integration/fixtures/replay_cases.json`
+  - `backend/tests/integration/fixtures/replay_expected.json`
 
 ## Rollback Procedure
 1. Stop consuming new formal output records downstream.
@@ -55,6 +56,6 @@
 ## Next Hardening Steps
 - Replace JSONL/file-backed writers with real warehouse table writers.
 - Replace mock response adapter with real provider client wiring.
-- Add formal taxonomy contract from `TODOS.md`.
-- Add signal-quality gate from `TODOS.md`.
-- Add manual override and rollback safety layer from `TODOS.md`.
+- Add formal taxonomy contract from `docs/backlog/TODOS.md`.
+- Add signal-quality gate from `docs/backlog/TODOS.md`.
+- Add manual override and rollback safety layer from `docs/backlog/TODOS.md`.

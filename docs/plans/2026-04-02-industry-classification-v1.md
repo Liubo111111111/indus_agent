@@ -8,6 +8,8 @@
 
 **Tech Stack:** ODPS SQL, Python 3.11+, LangGraph, Pydantic or dataclasses+validation, Pytest, YAML/JSON taxonomy config, LLM provider SDK.
 
+> Repo structure note: since the repository was reorganized into `backend/` + `frontend/`, all historical backend paths in this plan should now be read relative to `backend/`.
+
 ## Data Flow Diagram
 
 ```text
@@ -112,7 +114,7 @@ tests/
 
 **Files:**
 - Create: `sql/build_enterprise_industry_wide_table.sql`
-- Reference: `提取数据集.sql`
+- Reference: `sql/legacy/提取数据集.sql`
 - Test: `tests/unit/test_wide_row_examples.py`
 
 **Step 1: Write the failing test**
@@ -744,7 +746,7 @@ Write a short runbook note covering:
 
 ## Post-Launch Follow-ups
 
-- Use [TODOS.md](C:\Users\ASUS\Desktop\indus_agent\TODOS.md) to track:
+- Use `docs/backlog/TODOS.md` to track:
   - formal taxonomy contract
   - signal quality gate
   - manual override + rollback safety layer
