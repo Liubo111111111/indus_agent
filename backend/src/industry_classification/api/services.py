@@ -110,8 +110,12 @@ class _SqliteResultReader:
                     r.model_version_dynamic,
                     r.model_version_final,
                     r.created_at,
-                    r.updated_at
+                    r.updated_at,
+                    coalesce(final_step.updated_at, final_step.created_at, r.updated_at, r.created_at) as completed_at
                 from pipeline_runs r
+                left join inference_steps final_step
+                    on final_step.run_id = r.run_id
+                   and final_step.step_name = 'final_decision'
                 inner join (
                     select entity_key, max(updated_at) as max_updated
                     from pipeline_runs
@@ -170,7 +174,7 @@ class _SqliteResultReader:
                     "confidence_level": decision.get("confidence_level"),
                     "route": row["route"],
                     "error_type": row["error_type"],
-                    "timestamp": row["created_at"],
+                    "timestamp": row["completed_at"],
                     "annotations": ann_list,
                 }
             )

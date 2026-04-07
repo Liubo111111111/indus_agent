@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -362,6 +363,25 @@ class TestSqliteBackedServices:
         result = svc.list_runs(offset=0, limit=10)
         assert result.total == 2
         assert {item.route for item in result.items} == {"formal", "fallback"}
+
+    def test_run_service_uses_final_decision_completion_time_for_timestamp(self, sqlite_output: Path):
+        with sqlite3.connect(sqlite_output) as conn:
+            conn.execute(
+                "update pipeline_runs set created_at = ?, updated_at = ? where run_id = ?",
+                ("2026-04-07 10:00:00", "2026-04-07 10:00:00", "sqlite-run-1"),
+            )
+            conn.execute(
+                "update inference_steps set updated_at = ? where run_id = ? and step_name = ?",
+                ("2026-04-07 10:09:00", "sqlite-run-1", "final_decision"),
+            )
+            conn.commit()
+
+        svc = RunService({}, {}, sqlite_path=sqlite_output)
+
+        result = svc.list_runs(offset=0, limit=10)
+        target = next(item for item in result.items if item.run_id == "sqlite-run-1")
+
+        assert target.timestamp == "2026-04-07 10:09:00"
 
     def test_get_run_detail_reads_wide_row_from_sqlite(self, sqlite_output: Path):
         svc = RunService({}, {}, sqlite_path=sqlite_output)
