@@ -381,7 +381,7 @@ class TestSqliteBackedServices:
         result = svc.list_runs(offset=0, limit=10)
         target = next(item for item in result.items if item.run_id == "sqlite-run-1")
 
-        assert target.timestamp == "2026-04-07 10:09:00"
+        assert target.timestamp == "2026-04-07T10:09:00Z"
 
     def test_get_run_detail_reads_wide_row_from_sqlite(self, sqlite_output: Path):
         svc = RunService({}, {}, sqlite_path=sqlite_output)

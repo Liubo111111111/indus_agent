@@ -119,6 +119,23 @@ function resolveLabelName(raw: string, taxonomyLabels?: TaxonomyLabel[]): string
   return raw;
 }
 
+function normalizeTimestamp(value?: string): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(trimmed)) {
+    return `${trimmed.replace(' ', 'T')}Z`;
+  }
+  return trimmed;
+}
+
+function formatDateTime(value?: string): string {
+  const normalized = normalizeTimestamp(value);
+  if (!normalized) return '-';
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) return value ?? '-';
+  return parsed.toLocaleString('zh-CN', { hour12: false });
+}
+
 // --- Pipeline Nodes ---
 const PIPELINE_NODES = [
   { id: 'loader', name: '批量加载器', status: 'active' },
@@ -426,7 +443,7 @@ const AccessRequestsPanel = ({ showToast, onApproved }: { showToast: (msg: strin
                   {req.enterpriseEmail || req.email || '-'} · 企业: {req.tenantKey || '-'}
                 </div>
                 {req.reason && <div className="text-xs text-slate-400 mt-1">理由: {req.reason}</div>}
-                <div className="text-[10px] text-slate-400 mt-1">{req.createdAt}</div>
+                <div className="text-[10px] text-slate-400 mt-1">{formatDateTime(req.createdAt)}</div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {req.status === 'pending' ? (
@@ -866,7 +883,7 @@ const DetailView = ({
                             <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-sky-100 text-sky-700 border border-sky-200">{label}</span>
                             {reviewer && <span className="text-xs text-slate-500">by {reviewer}</span>}
                           </div>
-                          <span className="text-[10px] text-slate-400 font-mono">{createdAt}</span>
+                          <span className="text-[10px] text-slate-400 font-mono">{formatDateTime(createdAt)}</span>
                         </div>
                         {notes && <div className="text-xs text-slate-600 leading-relaxed">{notes}</div>}
                       </div>
@@ -1490,11 +1507,8 @@ export default function App() {
   const adminModeLabel = adminOverview?.adminMode === 'allowlist' ? '白名单管理员' : '默认管理员';
   const accessScopeLabel = adminOverview?.accessScope === 'restricted' ? '访问受限' : '所有登录用户可访问';
   const formatAuditTime = (value?: string) => {
-    if (!value) return '-';
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return value;
-    return parsed.toLocaleString('zh-CN', { hour12: false });
-  };
+      return formatDateTime(value);
+    };
 
   return (
     <div className="flex h-screen bg-slate-50 font-sans overflow-hidden selection:bg-blue-200 selection:text-blue-900">
@@ -2089,7 +2103,7 @@ export default function App() {
                                       }[item.errorType] ?? item.errorType}</span> : <span className="text-xs text-slate-400">-</span>}
                                     </td>
                                     <td className="px-6 py-4">
-                                      <span className="text-xs text-slate-500 font-mono">{item.timestamp ? new Date(item.timestamp).toLocaleString('zh-CN', { hour12: false }) : '-'}</span>
+                                      <span className="text-xs text-slate-500 font-mono">{formatDateTime(item.timestamp)}</span>
                                     </td>
                                   </tr>
                                 );

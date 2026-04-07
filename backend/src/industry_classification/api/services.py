@@ -12,6 +12,7 @@ import os
 import sqlite3
 import time
 from collections.abc import MutableMapping
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +53,18 @@ def _extract_entity_key(publish_key: str) -> str:
 
 def _get_audit(record: dict[str, Any]) -> dict[str, Any]:
     return record.get("audit") or {}
+
+
+def _normalize_utc_timestamp(value: str | None) -> str | None:
+    if not value:
+        return value
+    if "T" in value:
+        return value
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return value
+    return parsed.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 class _SqliteResultReader:
@@ -174,7 +187,7 @@ class _SqliteResultReader:
                     "confidence_level": decision.get("confidence_level"),
                     "route": row["route"],
                     "error_type": row["error_type"],
-                    "timestamp": row["completed_at"],
+                    "timestamp": _normalize_utc_timestamp(row["completed_at"]),
                     "annotations": ann_list,
                 }
             )
@@ -617,7 +630,7 @@ class RunService:
             confidence_level=confidence,
             route=route,
             error_type=record.get("error_type"),
-            timestamp=audit.get("timestamp"),
+            timestamp=_normalize_utc_timestamp(audit.get("timestamp")),
             annotations=annotations,
         )
 
