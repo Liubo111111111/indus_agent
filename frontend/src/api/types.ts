@@ -19,6 +19,7 @@ export interface RunSummary {
   entityKey: string;
   enterpriseName: string;
   finalLabel: string | null;
+  annotatedLabel: string | null;
   confidenceLevel: string | null;
   route: 'formal' | 'fallback';
   errorType: string | null;

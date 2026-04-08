@@ -18,6 +18,7 @@ import {
   Zap,
   Loader2,
   Car,
+  Truck,
   Music,
   Video,
   Home,
@@ -61,7 +62,8 @@ import { JOB_NAMES } from './job_names';
 
 // --- Taxonomy Icon Map ---
 const TAXONOMY_ICON_MAP: Record<string, { icon: any; color: string; bg: string }> = {
-  car_rental: { icon: Car, color: 'text-blue-500', bg: 'bg-blue-50' },
+  ride_hailing: { icon: Car, color: 'text-blue-500', bg: 'bg-blue-50' },
+  freight_logistics: { icon: Truck, color: 'text-sky-600', bg: 'bg-sky-50' },
   entertainment_services: { icon: Music, color: 'text-purple-500', bg: 'bg-purple-50' },
   cultural_media: { icon: Video, color: 'text-pink-500', bg: 'bg-pink-50' },
   domestic_services: { icon: Home, color: 'text-teal-500', bg: 'bg-teal-50' },
@@ -75,7 +77,8 @@ const TAXONOMY_ICON_MAP: Record<string, { icon: any; color: string; bg: string }
 };
 
 const TAXONOMY_NAME_ICON_MAP: Record<string, { icon: any; color: string; bg: string }> = {
-  '汽车租赁': { icon: Car, color: 'text-blue-500', bg: 'bg-blue-50' },
+  '网约车': { icon: Car, color: 'text-blue-500', bg: 'bg-blue-50' },
+  '货运物流': { icon: Truck, color: 'text-sky-600', bg: 'bg-sky-50' },
   '娱乐服务': { icon: Music, color: 'text-purple-500', bg: 'bg-purple-50' },
   '文化传媒': { icon: Video, color: 'text-pink-500', bg: 'bg-pink-50' },
   '家政服务': { icon: Home, color: 'text-teal-500', bg: 'bg-teal-50' },
@@ -94,7 +97,8 @@ function getTaxonomyIcon(label: TaxonomyLabel) {
 
 // taxonomy ID → 中文名映射（用于将英文ID转为中文显示）
 const TAXONOMY_ID_TO_NAME: Record<string, string> = {
-  car_rental: '汽车租赁',
+  ride_hailing: '网约车',
+  freight_logistics: '货运物流',
   entertainment_services: '娱乐服务',
   cultural_media: '文化传媒',
   domestic_services: '家政服务',
@@ -546,7 +550,10 @@ const DetailView = ({
   const modelLabel = (dr.finalLabel || dr.final_label || '未知') as string;
   // 将 taxonomy ID 转为中文 displayName
   const resolveLabel = (raw: string) => resolveLabelName(raw, taxonomyLabels);
-  const finalLabel = resolveLabel(((latestAnnotationRecord.annotatedLabel || latestAnnotationRecord.annotated_label) || modelLabel || '未知') as string);
+  const resolvedModelLabel = resolveLabel(modelLabel);
+  const annotatedLabelRaw = ((latestAnnotationRecord.annotatedLabel || latestAnnotationRecord.annotated_label) || '') as string;
+  const resolvedAnnotatedLabel = annotatedLabelRaw ? resolveLabel(annotatedLabelRaw) : '';
+  const finalLabel = resolvedAnnotatedLabel || resolvedModelLabel || '未知';
   const decisionReason = (dr.decisionReason || dr.decision_reason || '') as string;
   const evidence = (dr.supportingEvidence || dr.supporting_evidence || []) as string[];
   const route = run.route || 'unknown';
@@ -823,7 +830,7 @@ const DetailView = ({
                               </div>
                               {annotations.length > 0 && (
                                 <div className="text-xs text-sky-700 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">
-                                  模型原始结果：{modelLabel}，当前展示结果已被人工标注覆盖。
+                                  模型预测：{resolveLabel(modelLabel)}，人工标注：{resolvedAnnotatedLabel}
                                 </div>
                               )}
                               {decisionReason && <div className="text-xs text-slate-700 leading-relaxed">{decisionReason}</div>}
@@ -1141,14 +1148,13 @@ export default function App() {
     if (activeTab === 'classify') { api.getBatchConfig().then(c => setBatchMaxRows(c.batchMaxRows)).catch(() => {}); }
     if (activeTab === 'dashboard') { fetchStats(); }
     if (activeTab === 'review-list') { fetchRuns(0); fetchTaxonomy(); }
-    if (isAdmin && activeTab === 'admin-home') { fetchAdminOverview(); fetchAccessSettings(); fetchAuthAudit(); }
-    if (isAdmin && activeTab === 'taxonomy') { fetchTaxonomy(); }
+    if (isAdmin && activeTab === 'admin-home') { fetchAdminOverview(); fetchAccessSettings(); fetchAuthAudit(); fetchTaxonomy(); }
     if (isAdmin && activeTab === 'settings') { fetchSettings(); api.getPrompts().then(setPrompts).catch(() => {}).finally(() => setPromptsLoading(false)); }
   }, [activeTab, authReady, fetchAccessSettings, fetchAdminOverview, fetchAuthAudit, fetchStats, fetchRuns, fetchTaxonomy, fetchSettings, isAdmin]);
 
   useEffect(() => {
     if (!authReady || isAdmin) return;
-    if (activeTab === 'admin-home' || activeTab === 'taxonomy' || activeTab === 'settings') {
+    if (activeTab === 'admin-home' || activeTab === 'settings') {
       setActiveTab('dashboard');
     }
   }, [activeTab, authReady, isAdmin]);
@@ -1552,8 +1558,7 @@ export default function App() {
           {isAdmin && (
             <>
               <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 px-4 mt-8">管理后台</div>
-              <SidebarItem icon={ShieldAlert} label="后台总览" active={activeTab === 'admin-home' || activeTab === 'taxonomy' || activeTab === 'settings'} onClick={() => { setActiveTab('admin-home'); setSelectedRun(null); }} />
-              <SidebarItem icon={FileText} label="行业标签配置" active={activeTab === 'taxonomy'} onClick={() => { setActiveTab('taxonomy'); setSelectedRun(null); }} />
+              <SidebarItem icon={ShieldAlert} label="后台总览" active={activeTab === 'admin-home' || activeTab === 'settings'} onClick={() => { setActiveTab('admin-home'); setSelectedRun(null); }} />
               <SidebarItem icon={Settings} label="系统设置" active={activeTab === 'settings'} onClick={() => { setActiveTab('settings'); setSelectedRun(null); }} />
             </>
           )}
@@ -1578,7 +1583,6 @@ export default function App() {
                activeTab === 'review-list' ? '分类审核台' :
                activeTab === 'classify' ? '发起分类' :
                activeTab === 'admin-home' ? '管理后台' :
-               activeTab === 'taxonomy' ? '行业标签配置' :
                '系统设置'}
             </h1>
             <span className="px-2.5 py-1 bg-slate-100 text-slate-600 text-xs font-semibold rounded-md border border-slate-200">v1.0.4</span>
@@ -1767,9 +1771,6 @@ export default function App() {
                           <div className="text-xs font-mono text-slate-500 mt-1">{authOpenId || authEmail || '-'}</div>
                         </div>
                         <div className="flex gap-3">
-                          <button onClick={() => setActiveTab('taxonomy')} className="px-4 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors flex items-center gap-2">
-                            <FileText size={14} /> 行业标签配置
-                          </button>
                           <button onClick={() => setActiveTab('settings')} className="px-4 py-2 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium hover:bg-emerald-100 transition-colors flex items-center gap-2">
                             <Settings size={14} /> 系统设置
                           </button>
@@ -1957,6 +1958,56 @@ export default function App() {
                       )}
                     </div>
 
+                    {/* 行业标签一览 */}
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mt-6">
+                      <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2"><BookOpen size={14} className="text-blue-500" /> 行业标签体系</h3>
+                          {taxonomy && (
+                            <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-xs font-semibold rounded-md border border-blue-200">
+                              {taxonomy.version}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {taxonomyLoading ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-6">
+                          {Array.from({ length: 6 }).map((_, idx) => (
+                            <div key={idx} className="p-4 rounded-xl border border-slate-100">
+                              <div className="flex items-center gap-3 mb-2">
+                                <Skeleton className="w-10 h-10 rounded-lg" />
+                                <div className="flex-1"><Skeleton className="h-4 w-20" /></div>
+                              </div>
+                              <Skeleton className="h-3 w-full" />
+                            </div>
+                          ))}
+                        </div>
+                      ) : taxonomyError ? (
+                        <ErrorBox message={taxonomyError} onRetry={fetchTaxonomy} />
+                      ) : taxonomy ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-6">
+                          {taxonomy.labels.map((label) => {
+                            const iconInfo = getTaxonomyIcon(label);
+                            const IconComp = iconInfo.icon;
+                            return (
+                              <div key={label.id} className="p-4 rounded-xl border border-slate-100 hover:border-slate-200 hover:shadow-sm transition-all group">
+                                <div className="flex items-center gap-3 mb-2">
+                                  <div className={`w-10 h-10 rounded-lg ${iconInfo.bg} flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform`}>
+                                    <IconComp size={20} className={iconInfo.color} />
+                                  </div>
+                                  <div>
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label.id}</span>
+                                    <h4 className="text-sm font-bold text-slate-900">{label.displayName}</h4>
+                                  </div>
+                                </div>
+                                <p className="text-xs text-slate-500 leading-relaxed">{label.shortDescription}</p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+
                   </>
                 )}
 
@@ -2070,7 +2121,7 @@ export default function App() {
                                           title={latestAnn?.reviewerNotes || '人工标注已生效'}
                                           className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-sky-50 text-sky-700 border border-sky-200"
                                         >
-                                          人工标注
+                                          {resolveLabelName((item.annotatedLabel || (latestAnn as any)?.annotatedLabel || (latestAnn as any)?.annotated_label || '') as string) || '人工标注'}
                                         </span>
                                       ) : (
                                         <span className="text-xs text-slate-400">-</span>
@@ -2424,75 +2475,6 @@ export default function App() {
                         )}
                       </div>
                     </div>
-                  </motion.div>
-                )}
-
-                {/* ===== 行业标签配置 ===== */}
-                {activeTab === 'taxonomy' && (
-                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-                    <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
-                      <div className="flex items-start gap-4">
-                        <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
-                          <BookOpen size={24} className="text-blue-600" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <h2 className="text-xl font-bold text-slate-900">需求背景与目标</h2>
-                            {taxonomy && (
-                              <span className="px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-semibold rounded-md border border-blue-200">
-                                版本: {taxonomy.version}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-slate-600 leading-relaxed text-sm mb-4">
-                            当前企业行业识别主要依赖企业名称、经营范围等静态信息，但在实际业务中，很多企业名称较泛、经营范围较宽，单靠主体信息无法准确反映企业真实业务方向。
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {taxonomyLoading ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {Array.from({ length: 6 }).map((_, idx) => (
-                          <div key={idx} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                            <div className="flex items-center gap-4 mb-4">
-                              <Skeleton className="w-12 h-12 rounded-xl" />
-                              <div className="flex-1"><Skeleton className="h-3 w-16 mb-2" /><Skeleton className="h-5 w-24" /></div>
-                            </div>
-                            <Skeleton className="h-4 w-full mb-2" /><Skeleton className="h-4 w-3/4" />
-                          </div>
-                        ))}
-                      </div>
-                    ) : taxonomyError ? (
-                      <ErrorBox message={taxonomyError} onRetry={fetchTaxonomy} />
-                    ) : taxonomy ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {taxonomy.labels.map((label, idx) => {
-                          const iconInfo = getTaxonomyIcon(label);
-                          const IconComp = iconInfo.icon;
-                          return (
-                            <motion.div
-                              initial={{ opacity: 0, y: 20 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ delay: idx * 0.05 }}
-                              key={label.id}
-                              className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all group"
-                            >
-                              <div className="flex items-center gap-4 mb-4">
-                                <div className={`w-12 h-12 rounded-xl ${iconInfo.bg} flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform`}>
-                                  <IconComp size={24} className={iconInfo.color} />
-                                </div>
-                                <div>
-                                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">ID: {label.id}</span>
-                                  <h3 className="text-lg font-bold text-slate-900">{label.displayName}</h3>
-                                </div>
-                              </div>
-                              <p className="text-sm text-slate-600 leading-relaxed">{label.shortDescription}</p>
-                            </motion.div>
-                          );
-                        })}
-                      </div>
-                    ) : null}
                   </motion.div>
                 )}
 

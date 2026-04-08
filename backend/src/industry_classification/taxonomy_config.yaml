@@ -1,9 +1,14 @@
-version: v1
+version: v1.5
 labels:
-  - id: car_rental
-    display_name: 汽车租赁
-    short_description: 汽车租赁、网约车、货运司机、货车运输、运力、出行相关企业
-    prompt_text: 汽车租赁、网约车、货运司机、货车运输、道路货物运输、运力调度、出行服务相关企业。企业名称或经营范围含"汽车服务"、"汽车租赁"、"道路货物运输"、"货运"等关键词，且招聘岗位以司机类（货运司机、网约车司机、代驾等）为主的企业应归入此类。
+  - id: ride_hailing
+    display_name: 网约车
+    short_description: 网约车司机、商务车司机、代驾、出行服务相关企业
+    prompt_text: 网约车司机、商务车司机、代驾、出行服务相关企业。企业名称或经营范围含"汽车服务"、"汽车租赁"、"出行"等关键词，且招聘岗位以网约车司机、商务车司机、代驾司机等客运出行类岗位为主的企业应归入此类。货车司机、道路货物运输类企业不属于此类，应归入"货运物流"。
+    enabled: true
+  - id: freight_logistics
+    display_name: 货运物流
+    short_description: C照货车司机、物流类公司、道路货物运输、运力调度相关企业
+    prompt_text: C照货车司机、物流类公司、道路货物运输、货运司机、运力调度相关企业。企业名称或经营范围含"道路货物运输"、"货运"、"物流"、"运力"等关键词，且招聘岗位以货车司机、货运司机等货物运输类岗位为主的企业应归入此类。网约车司机、商务车司机等客运出行类企业不属于此类，应归入"网约车"。
     enabled: true
   - id: entertainment_services
     display_name: 娱乐服务
@@ -43,7 +48,7 @@ labels:
   - id: delivery_riders
     display_name: 骑手配送
     short_description: 外卖骑手、同城即时配送、站点配送、跑腿相关企业
-    prompt_text: 外卖骑手、同城即时配送、站点配送、跑腿、快递末端配送相关企业。核心特征是以两轮电动车/摩托车为主要运力的即时配送场景。货车司机、道路货物运输类企业不属于此类，应归入"汽车租赁"。
+    prompt_text: 外卖骑手、同城即时配送、站点配送、跑腿、快递末端配送相关企业。核心特征是以两轮电动车/摩托车为主要运力的即时配送场景。货车司机、道路货物运输类企业不属于此类，应归入"货运物流"。
     enabled: true
   - id: catering_services
     display_name: 餐饮服务
@@ -53,6 +58,6 @@ labels:
   - id: other
     display_name: 其他
     short_description: 证据不足或不明确归类到前十类的企业
-    prompt_text: 若证据不足或无法明确归类到前十类时，保守归为其他。
+    prompt_text: 若证据不足或无法明确归类到以上各类时，保守归为其他。
     enabled: true
 

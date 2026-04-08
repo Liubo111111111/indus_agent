@@ -36,7 +36,7 @@ def build_initial_state(
     graph_version: str,
     prompt_version_static: str = "v1",
     prompt_version_dynamic: str = "v1",
-    prompt_version_final: str = "v1",
+    prompt_version_final: str = "v2",
     model_version_static: str = "unset",
     model_version_dynamic: str = "unset",
     model_version_final: str = "unset",

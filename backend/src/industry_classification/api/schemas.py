@@ -23,6 +23,7 @@ class RunSummary(BaseModel):
     entity_key: str  # social_credit_code
     enterprise_name: str
     final_label: str | None
+    annotated_label: str | None = None
     confidence_level: str | None  # "high" / "medium" / "low"
     route: str  # "formal" / "fallback"
     error_type: str | None

@@ -141,6 +141,7 @@ class _SqliteResultReader:
             ).fetchall()
 
     def _annotation_map(self) -> dict[str, list[dict[str, Any]]]:
+        """Return annotations indexed by *run_id*."""
         if not self.enabled:
             return {}
         with self._connect() as conn:
@@ -162,6 +163,34 @@ class _SqliteResultReader:
             result.setdefault(row["run_id"], []).append(entry)
         return result
 
+    def _annotation_map_by_entity(self) -> dict[str, list[dict[str, Any]]]:
+        """Return annotations indexed by *entity_key*.
+
+        When a model re-run creates a new run_id for the same entity,
+        annotations made on the old run_id are still reachable via entity_key.
+        """
+        if not self.enabled:
+            return {}
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                select run_id, entity_key, annotated_label, reviewer_notes, reviewer_name, created_at
+                from annotations
+                order by created_at asc
+                """
+            ).fetchall()
+        result: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            entry = {
+                "run_id": row["run_id"],
+                "annotated_label": row["annotated_label"],
+                "reviewer_notes": row["reviewer_notes"],
+                "reviewer_name": row["reviewer_name"] if "reviewer_name" in row.keys() else "",
+                "created_at": row["created_at"],
+            }
+            result.setdefault(row["entity_key"], []).append(entry)
+        return result
+
     def count_by_route(self) -> tuple[int, int]:
         runs = self._list_run_rows()
         formal = sum(1 for row in runs if row["route"] == "formal")
@@ -171,19 +200,20 @@ class _SqliteResultReader:
     def list_runs(self, offset: int, limit: int) -> list[dict[str, Any]]:
         rows = self._list_run_rows()
         page = rows[offset : offset + limit]
-        annotations = self._annotation_map()
+        annotations_by_entity = self._annotation_map_by_entity()
         result: list[dict[str, Any]] = []
         for row in page:
             wide = self._load_json(row["wide_row_json"], {})
             decision = self._load_json(row["decision_record_json"], {})
-            ann_list = annotations.get(row["run_id"], [])
-            latest_label = ann_list[-1]["annotated_label"] if ann_list else None
+            ann_list = annotations_by_entity.get(row["entity_key"], [])
+            latest_annotated = ann_list[-1]["annotated_label"] if ann_list else None
             result.append(
                 {
                     "run_id": row["run_id"],
                     "entity_key": row["entity_key"],
                     "enterprise_name": wide.get("enterprise_name", row["entity_key"]),
-                    "final_label": latest_label or decision.get("final_label"),
+                    "final_label": decision.get("final_label"),
+                    "annotated_label": latest_annotated,
                     "confidence_level": decision.get("confidence_level"),
                     "route": row["route"],
                     "error_type": row["error_type"],
@@ -225,9 +255,9 @@ class _SqliteResultReader:
             ).fetchone()
             annotation_row = conn.execute(
                 """
-                select annotated_label, reviewer_notes, created_at
+                select annotated_label, reviewer_notes, reviewer_name, created_at
                 from annotations
-                where run_id = ?
+                where entity_key = (select entity_key from pipeline_runs where run_id = ?)
                 order by created_at asc
                 """,
                 (run_id,),
@@ -239,6 +269,7 @@ class _SqliteResultReader:
             {
                 "annotated_label": ar["annotated_label"],
                 "reviewer_notes": ar["reviewer_notes"],
+                "reviewer_name": ar["reviewer_name"] if "reviewer_name" in ar.keys() else "",
                 "created_at": ar["created_at"],
             }
             for ar in annotation_row
@@ -322,7 +353,7 @@ class _SqliteResultReader:
             return 0
         with self._connect() as conn:
             row = conn.execute(
-                "select count(distinct run_id) from annotations"
+                "select count(distinct entity_key) from annotations"
             ).fetchone()
             return row[0] if row else 0
 
@@ -357,12 +388,12 @@ class _SqliteResultReader:
     def list_annotated_runs(self) -> list[dict[str, Any]]:
         if not self.enabled:
             return []
-        annotations = self._annotation_map()
-        if not annotations:
+        annotations_by_entity = self._annotation_map_by_entity()
+        if not annotations_by_entity:
             return []
         result: list[dict[str, Any]] = []
         for row in self._list_run_rows():
-            ann_list = annotations.get(row["run_id"])
+            ann_list = annotations_by_entity.get(row["entity_key"])
             if not ann_list:
                 continue
             wide = self._load_json(row["wide_row_json"], {})
@@ -489,8 +520,8 @@ class _SqliteResultReader:
             if row is None:
                 return None
             count = conn.execute(
-                "select count(*) from annotations where run_id = ?",
-                (run_id,),
+                "select count(*) from annotations where entity_key = ?",
+                (row["entity_key"],),
             ).fetchone()[0]
             if count >= 3:
                 return {
@@ -618,15 +649,22 @@ class RunService:
             dr = record.get("decision_record") or {}
             final_label = dr.get("final_label") if isinstance(dr, dict) else None
             confidence = dr.get("confidence_level") if isinstance(dr, dict) else None
+        annotated_label = None
         if annotations:
             latest = annotations[-1]
-            final_label = latest.get("annotated_label", final_label)
+            annotated_label = latest.get("annotated_label")
+            # 对于 fallback 转 formal 的记录，final_label 可能已被覆盖为人工标签
+            # 尝试从 model_decision_record 恢复模型原始标签
+            model_dr = record.get("model_decision_record")
+            if isinstance(model_dr, dict) and model_dr.get("final_label"):
+                final_label = model_dr["final_label"]
 
         return RunSummary(
             run_id=audit.get("run_id", ""),
             entity_key=entity_key,
             enterprise_name=record.get("enterprise_name") or wide.get("enterprise_name", entity_key),
             final_label=final_label,
+            annotated_label=annotated_label,
             confidence_level=confidence,
             route=route,
             error_type=record.get("error_type"),

@@ -116,19 +116,19 @@ def run_once(
         static_service = StaticProfileService(
             client=client,
             model_version="mock-static-v1",
-            prompt_version="v1",
+            prompt_version=state.prompt_version_static,
             sqlite_store=resolved_sqlite_store,
         )
         dynamic_service = DynamicProfileService(
             client=client,
             model_version="mock-dynamic-v1",
-            prompt_version="v1",
+            prompt_version=state.prompt_version_dynamic,
             sqlite_store=resolved_sqlite_store,
         )
         final_service = FinalDecisionService(
             client=client,
             model_version="mock-final-v1",
-            prompt_version="v1",
+            prompt_version=state.prompt_version_final,
             sqlite_store=resolved_sqlite_store,
         )
 

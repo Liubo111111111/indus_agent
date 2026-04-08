@@ -10,7 +10,8 @@
 
 | ID | 标签 | 说明 |
 |---|---|---|
-| car_rental | 汽车租赁 | 汽车租赁、网约车、货运司机、运力、出行 |
+| ride_hailing | 网约车 | 网约车司机、商务车司机、代驾、出行服务 |
+| freight_logistics | 货运物流 | C照货车司机、物流类公司、道路货物运输、运力调度 |
 | entertainment_services | 娱乐服务 | 酒吧、KTV、SPA、足浴、按摩、洗浴、夜场 |
 | cultural_media | 文化传媒 | 主播、直播、传媒、演艺、广告传播、短视频 |
 | domestic_services | 家政服务 | 保姆、月嫂、育儿嫂、钟点工、家庭保洁、收纳 |
