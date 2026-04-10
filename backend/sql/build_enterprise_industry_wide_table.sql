@@ -32,13 +32,15 @@ WITH enterprise_master AS (
         user_id,
         social_credit_code,
         name AS enterprise_name,
-        business_scope
+        business_scope,
+        SUBSTR(CAST(authentication_time AS STRING), 1, 10) AS authentication_time
     FROM (
         SELECT
             user_id,
             social_credit_code,
             name,
             business_scope,
+            authentication_time,
             ROW_NUMBER() OVER (
                 PARTITION BY social_credit_code
                 ORDER BY updated_at DESC
@@ -76,16 +78,15 @@ job_publish_detail AS (
                 PARTITION BY t3.job_id
                 ORDER BY t2.issue_ts DESC
             ) AS rn
-        FROM yuapo.enterprise_user_account t1
+        FROM enterprise_master t1
         JOIN yuapo.dim_info_hist t2
-            ON t1.pt = t2.ds
+            ON t2.ds = '${bdp.system.bizdate}'
            AND t1.user_id = t2.user_id
            AND t2.info_type = 1
            AND t2.check_status = 1
         JOIN job_info t3
             ON t2.info_id = CAST(t3.job_id AS STRING)
-        WHERE t1.pt = '${bdp.system.bizdate}'
-          AND FROM_UNIXTIME(t2.issue_ts) >= DATEADD(TO_DATE('${bdp.system.bizdate}', 'yyyymmdd'), -90, 'dd')
+        WHERE FROM_UNIXTIME(t2.issue_ts) >= DATEADD(TO_DATE('${bdp.system.bizdate}', 'yyyymmdd'), -90, 'dd')
           AND FROM_UNIXTIME(t2.issue_ts) < DATEADD(TO_DATE('${bdp.system.bizdate}', 'yyyymmdd'), 1, 'dd')
     ) src
     WHERE rn = 1
@@ -216,15 +217,6 @@ latest_publish AS (
         ON lp.social_credit_code = lp2.social_credit_code
     WHERE lp.rn = 1
     GROUP BY lp.social_credit_code, lp.add_time
-),
-enterprise_auth AS (
-    SELECT
-        social_credit_code,
-        SUBSTR(CAST(authentication_time AS STRING), 1, 10) AS authentication_time
-    FROM yuapo.enterprise_user_account
-    WHERE pt = '${bdp.system.bizdate}'
-      AND authentication_time IS NOT NULL
-    GROUP BY social_credit_code, SUBSTR(CAST(authentication_time AS STRING), 1, 10)
 )
 INSERT OVERWRITE TABLE yuapo_dev.enterprise_industry_wide_table
 PARTITION (pt = '${bdp.system.bizdate}')
@@ -239,7 +231,7 @@ SELECT
     COALESCE(r.jobs_recent_20_json, '[]') AS jobs_recent_20_json,
     lp.latest_publish_time,
     COALESCE(lp.latest_publish_job_names_json, '[]') AS latest_publish_job_names_json,
-    ea.authentication_time
+    m.authentication_time
 FROM enterprise_master m
 INNER JOIN job_summary_agg s
     ON m.social_credit_code = s.social_credit_code
@@ -249,6 +241,4 @@ LEFT JOIN recent_jobs_top20 r
     ON m.social_credit_code = r.social_credit_code
 LEFT JOIN latest_publish lp
     ON m.social_credit_code = lp.social_credit_code
-LEFT JOIN enterprise_auth ea
-    ON m.social_credit_code = ea.social_credit_code
 ;

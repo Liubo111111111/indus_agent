@@ -1546,7 +1546,7 @@ export default function App() {
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
             <Building2 size={18} className="text-white" />
           </div>
-          <span className="font-bold text-lg tracking-tight">行业分类 V1</span>
+          <span className="font-bold text-lg tracking-tight">行业分类 V1.5</span>
         </div>
 
         <div className="px-4 py-2 flex-1 space-y-1">
@@ -1585,7 +1585,7 @@ export default function App() {
                activeTab === 'admin-home' ? '管理后台' :
                '系统设置'}
             </h1>
-            <span className="px-2.5 py-1 bg-slate-100 text-slate-600 text-xs font-semibold rounded-md border border-slate-200">v1.0.4</span>
+            <span className="px-2.5 py-1 bg-slate-100 text-slate-600 text-xs font-semibold rounded-md border border-slate-200">v1.5.0</span>
           </div>
 
           <div className="flex items-center gap-6">

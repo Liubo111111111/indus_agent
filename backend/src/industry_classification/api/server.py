@@ -453,7 +453,7 @@ def create_app(output_dir: Path | None = None) -> FastAPI:
     )
 
     # -- app --------------------------------------------------------------
-    app = FastAPI(title="Industry Classification API", version="1.0.0")
+    app = FastAPI(title="Industry Classification API", version="1.5.0")
     allow_origins = ["http://localhost:3000"]
     parsed_frontend = urlsplit(auth_settings.frontend_base_url)
     frontend_origin = ""
