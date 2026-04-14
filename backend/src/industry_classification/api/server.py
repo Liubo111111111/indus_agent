@@ -19,13 +19,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from industry_classification.api.auth import AuthAuditStore, FeishuAuthService, load_feishu_auth_settings
+from industry_classification.api.data_source_router import DataSourceRouter
 from industry_classification.api.routes import create_router
 from industry_classification.api.services import (
-    FallbackService,
-    RunService,
-    SearchService,
     SettingsService,
-    StatsService,
     TaxonomyService,
 )
 from industry_classification.writers.jsonl_store import JsonlKeyedStore
@@ -83,17 +80,18 @@ def create_app(output_dir: Path | None = None) -> FastAPI:
     out = output_dir or _OUTPUT_DIR
     out.mkdir(parents=True, exist_ok=True)
 
-    # -- data stores ------------------------------------------------------
-    formal_store = JsonlKeyedStore(out / "formal_output.jsonl")
-    fallback_store = JsonlKeyedStore(out / "fallback_output.jsonl")
-    sqlite_path = out / "pipeline_results.sqlite3"
-    wide_index = _load_wide_row_index(out)
+    # -- data stores (单条分类写入 _legacy 目录) ----------------------------
+    legacy_dir = out / "_legacy"
+    legacy_dir.mkdir(parents=True, exist_ok=True)
+    formal_store = JsonlKeyedStore(legacy_dir / "formal_output.jsonl")
+    fallback_store = JsonlKeyedStore(legacy_dir / "fallback_output.jsonl")
+    sqlite_path = legacy_dir / "pipeline_results.sqlite3"
+    wide_index = _load_wide_row_index(legacy_dir)
+
+    # -- data source router -----------------------------------------------
+    router_instance = DataSourceRouter(base_output_dir=out)
 
     # -- services ---------------------------------------------------------
-    stats_svc = StatsService(formal_store, fallback_store, sqlite_path=sqlite_path)
-    run_svc = RunService(formal_store, fallback_store, wide_row_index=wide_index, sqlite_path=sqlite_path)
-    search_svc = SearchService(formal_store, fallback_store, wide_row_index=wide_index, sqlite_path=sqlite_path)
-    fallback_svc = FallbackService(formal_store, fallback_store, wide_row_index=wide_index, sqlite_path=sqlite_path)
     taxonomy_svc = TaxonomyService()
     settings_svc = SettingsService()
     auth_settings = load_feishu_auth_settings()
@@ -439,10 +437,7 @@ def create_app(output_dir: Path | None = None) -> FastAPI:
 
     # -- router -----------------------------------------------------------
     router = create_router(
-        stats_service=stats_svc,
-        run_service=run_svc,
-        search_service=search_svc,
-        fallback_service=fallback_svc,
+        data_source_router=router_instance,
         taxonomy_service=taxonomy_svc,
         settings_service=settings_svc,
         auth_service=auth_svc,

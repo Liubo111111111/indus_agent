@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from industry_classification.api.auth import FeishuAuthService, FeishuAuthSettings, FeishuUser
+from industry_classification.api.data_source_router import DataSourceRouter
 from industry_classification.api.routes import create_router
 from industry_classification.api.services import (
     FallbackService,
@@ -31,6 +34,23 @@ def _formal_record(entity_key: str, run_id: str, label: str = "物业管理") ->
     }
 
 
+def _build_mock_data_source_router(
+    formal: dict, fallback: dict
+) -> DataSourceRouter:
+    """Create a mock DataSourceRouter that returns in-memory services."""
+    mock_router = MagicMock(spec=DataSourceRouter)
+    mock_router.get_latest_pt.return_value = "20260412"
+    mock_router.validate_pt.return_value = True
+    mock_router.build_services.return_value = {
+        "stats_service": StatsService(formal, fallback),
+        "run_service": RunService(formal, fallback),
+        "search_service": SearchService(formal, fallback),
+        "fallback_service": FallbackService(formal, fallback),
+    }
+    mock_router.list_dates.return_value = [{"pt": "20260412", "record_count": 1}]
+    return mock_router
+
+
 def _build_client() -> tuple[TestClient, FeishuAuthService]:
     return _build_client_with_auth(
         FeishuAuthSettings(
@@ -51,13 +71,11 @@ def _build_client_with_auth(settings: FeishuAuthSettings) -> tuple[TestClient, F
     fallback: dict[str, dict] = {}
 
     auth = FeishuAuthService(settings)
+    mock_dsr = _build_mock_data_source_router(formal, fallback)
 
     app = FastAPI()
     router = create_router(
-        stats_service=StatsService(formal, fallback),
-        run_service=RunService(formal, fallback),
-        search_service=SearchService(formal, fallback),
-        fallback_service=FallbackService(formal, fallback),
+        data_source_router=mock_dsr,
         taxonomy_service=TaxonomyService(),
         settings_service=SettingsService(),
         auth_service=auth,

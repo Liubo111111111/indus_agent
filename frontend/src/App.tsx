@@ -48,6 +48,7 @@ import type {
   AccessSettings,
   AnnotationRecord,
   AuthSession,
+  DateEntry,
   StatsResponse,
   RunSummary,
   PaginatedResponse,
@@ -58,6 +59,8 @@ import type {
   TaxonomyResponse,
   SettingsResponse,
 } from './api/types';
+import DateSelector from './components/DateSelector';
+import DateRangeView from './components/DateRangeView';
 import { JOB_NAMES } from './job_names';
 
 // --- Taxonomy Icon Map ---
@@ -297,6 +300,7 @@ const AnnotationDialog = ({
   reviewerName = '',
   taxonomyLabels,
   showToast,
+  pt,
 }: {
   open: boolean;
   onClose: (submitted?: boolean) => void;
@@ -306,6 +310,7 @@ const AnnotationDialog = ({
   reviewerName?: string;
   taxonomyLabels: TaxonomyLabel[];
   showToast: (msg: string, isError?: boolean) => void;
+  pt?: string | null;
 }) => {
   const [selectedLabel, setSelectedLabel] = useState(currentLabel || '');
   const [reviewerNotes, setReviewerNotes] = useState(currentNotes);
@@ -322,7 +327,7 @@ const AnnotationDialog = ({
     if (!selectedLabel) return;
     setSubmitting(true);
     try {
-      await api.submitAnnotation(runId, { annotatedLabel: selectedLabel, reviewerNotes, reviewerName });
+      await api.submitAnnotation(runId, { annotatedLabel: selectedLabel, reviewerNotes, reviewerName }, pt ?? undefined);
       showToast('标注提交成功');
       onClose(true);
     } catch (e: any) {
@@ -502,12 +507,14 @@ const DetailView = ({
   showToast,
   taxonomyLabels,
   currentUserName = '',
+  pt,
 }: {
   runId: string;
   onBack: () => void;
   showToast: (msg: string, isError?: boolean) => void;
   taxonomyLabels: TaxonomyLabel[];
   currentUserName?: string;
+  pt?: string | null;
 }) => {
   const [run, setRun] = useState<RunDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -517,11 +524,11 @@ const DetailView = ({
   const fetchDetail = useCallback(() => {
     setLoading(true);
     setError(null);
-    api.getRunDetail(runId)
+    api.getRunDetail(runId, pt ?? undefined)
       .then(setRun)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, [runId]);
+  }, [runId, pt]);
 
   useEffect(() => { fetchDetail(); }, [fetchDetail]);
 
@@ -922,6 +929,7 @@ const DetailView = ({
             reviewerName={currentUserName}
             taxonomyLabels={taxonomyLabels}
             showToast={showToast}
+            pt={pt}
           />
         )}
       </AnimatePresence>
@@ -952,6 +960,13 @@ export default function App() {
   // Annotation archive
   const [annotationArchive, setAnnotationArchive] = useState<Record<string, unknown>[]>([]);
   const [archiveLoading, setArchiveLoading] = useState(false);
+
+  // Date selector
+  const [dates, setDates] = useState<DateEntry[]>([]);
+  const [latestPt, setLatestPt] = useState<string | null>(null);
+  const [selectedPt, setSelectedPt] = useState<string | null>(null);
+  const [datesLoading, setDatesLoading] = useState(false);
+  const [viewMode, setViewMode] = useState<'single' | 'range'>('single');
 
   // Runs (used by 分类审核台)
   const [runs, setRuns] = useState<RunSummary[]>([]);
@@ -1049,6 +1064,22 @@ export default function App() {
   const authReady = !authLoading && !!authSession?.enabled && authSession.authenticated;
   const isAdmin = !!authSession?.user?.isAdmin;
 
+  // Fetch available dates when auth is ready
+  useEffect(() => {
+    if (!authReady) return;
+    setDatesLoading(true);
+    api.getDates()
+      .then(data => {
+        setDates(data.dates);
+        setLatestPt(data.latestPt);
+        if (!selectedPt && data.latestPt) {
+          setSelectedPt(data.latestPt);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setDatesLoading(false));
+  }, [authReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Sync localReqStatus when authSession changes
   useEffect(() => {
     if (authSession?.requestStatus !== undefined) {
@@ -1059,14 +1090,14 @@ export default function App() {
   // --- Data Fetching ---
   const fetchStats = useCallback(() => {
     setStatsLoading(true); setStatsError(null);
-    api.getStats().then(setStats).catch(e => setStatsError(e.message)).finally(() => setStatsLoading(false));
+    api.getStats(selectedPt ?? undefined).then(setStats).catch(e => setStatsError(e.message)).finally(() => setStatsLoading(false));
     setArchiveLoading(true);
-    api.getAnnotations().then(setAnnotationArchive).catch(() => {}).finally(() => setArchiveLoading(false));
-  }, []);
+    api.getAnnotations(selectedPt ?? undefined).then(setAnnotationArchive).catch(() => {}).finally(() => setArchiveLoading(false));
+  }, [selectedPt]);
 
   const fetchRuns = useCallback((offset = 0, append = false) => {
     if (!append) { setRunsLoading(true); setRunsError(null); } else { setRunsLoadingMore(true); }
-    api.getRuns(offset, RUNS_LIMIT)
+    api.getRuns(offset, RUNS_LIMIT, selectedPt ?? undefined)
       .then((data: PaginatedResponse<RunSummary>) => {
         if (append) { setRuns(prev => [...prev, ...data.items]); }
         else { setRuns(data.items); }
@@ -1075,7 +1106,7 @@ export default function App() {
       })
       .catch(e => setRunsError(e.message))
       .finally(() => { setRunsLoading(false); setRunsLoadingMore(false); });
-  }, []);
+  }, [selectedPt]);
 
   const fetchTaxonomy = useCallback(() => {
     setTaxonomyLoading(true); setTaxonomyError(null);
@@ -1166,7 +1197,7 @@ export default function App() {
     if (!searchQuery.trim()) { setSearchResults([]); setSearchOpen(false); setSearchNoResults(false); return; }
     setSearchLoading(true);
     searchTimerRef.current = setTimeout(() => {
-      api.search(searchQuery.trim())
+      api.search(searchQuery.trim(), selectedPt ?? undefined)
         .then(results => { setSearchResults(results); setSearchOpen(true); setSearchNoResults(results.length === 0); })
         .catch(() => { setSearchResults([]); setSearchNoResults(true); })
         .finally(() => setSearchLoading(false));
@@ -1753,6 +1784,7 @@ export default function App() {
                   showToast={showToast}
                   taxonomyLabels={taxonomyLabels}
                   currentUserName={authUserName}
+                  pt={selectedPt}
                 />
               </div>
             ) : (
@@ -1827,6 +1859,54 @@ export default function App() {
                 {/* ===== 数据汇总 ===== */}
                 {activeTab === 'dashboard' && (
                   <>
+                    {/* Date Selector + Mode Toggle */}
+                    <div className="mb-6 flex items-center justify-between flex-wrap gap-3">
+                      <div className="flex items-center gap-3">
+                        {viewMode === 'single' && (
+                          <DateSelector
+                            dates={dates}
+                            latestPt={latestPt}
+                            selectedPt={selectedPt}
+                            loading={datesLoading || statsLoading}
+                            onSelect={setSelectedPt}
+                          />
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+                        <button
+                          onClick={() => setViewMode('single')}
+                          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                            viewMode === 'single'
+                              ? 'bg-white text-slate-900 shadow-sm'
+                              : 'text-slate-500 hover:text-slate-700'
+                          }`}
+                        >
+                          单日视图
+                        </button>
+                        <button
+                          onClick={() => setViewMode('range')}
+                          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                            viewMode === 'range'
+                              ? 'bg-white text-slate-900 shadow-sm'
+                              : 'text-slate-500 hover:text-slate-700'
+                          }`}
+                        >
+                          范围视图
+                        </button>
+                      </div>
+                    </div>
+
+                    {viewMode === 'range' ? (
+                      <DateRangeView
+                        dates={dates}
+                        onSelectDate={(pt) => {
+                          setSelectedPt(pt);
+                          setViewMode('single');
+                        }}
+                      />
+                    ) : (
+                    <>
+
                     {/* Stats Cards */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       {statsLoading ? (
@@ -2007,6 +2087,9 @@ export default function App() {
                         </div>
                       ) : null}
                     </div>
+
+                    </>
+                    )}
 
                   </>
                 )}
@@ -2453,7 +2536,7 @@ export default function App() {
                             <span className="text-sm text-emerald-600 font-medium">分类完成</span>
                             {classifyResultRunId ? (
                               <button
-                                onClick={() => { setSelectedRun(classifyResultRunId); setActiveTab('review-list'); }}
+                                onClick={() => { setSelectedPt('_legacy'); setSelectedRun(classifyResultRunId); setActiveTab('review-list'); }}
                                 className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
                               >
                                 查看结果 <ChevronRight size={14} />

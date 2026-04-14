@@ -18,6 +18,8 @@ import type {
   TaxonomyResponse,
   SettingsResponse,
   SettingsUpdate,
+  DatesResponse,
+  DailySummaryResponse,
 } from './types';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -130,20 +132,38 @@ export const api = {
       method: 'POST',
     }),
 
-  getStats: () => request<StatsResponse>('/stats'),
+  getStats: (pt?: string) => {
+    const params = new URLSearchParams();
+    if (pt) params.set('pt', pt);
+    const qs = params.toString();
+    return request<StatsResponse>(`/stats${qs ? `?${qs}` : ''}`);
+  },
 
-  getAnnotations: () => request<Record<string, unknown>[]>('/annotations'),
+  getAnnotations: (pt?: string) => {
+    const params = new URLSearchParams();
+    if (pt) params.set('pt', pt);
+    const qs = params.toString();
+    return request<Record<string, unknown>[]>(`/annotations${qs ? `?${qs}` : ''}`);
+  },
 
-  getRuns: (offset = 0, limit = 20) =>
-    request<PaginatedResponse<RunSummary>>(
-      `/runs?offset=${offset}&limit=${limit}`
-    ),
+  getRuns: (offset = 0, limit = 20, pt?: string) => {
+    const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    if (pt) params.set('pt', pt);
+    return request<PaginatedResponse<RunSummary>>(`/runs?${params}`);
+  },
 
-  getRunDetail: (runId: string) =>
-    request<RunDetail>(`/runs/${encodeURIComponent(runId)}`),
+  getRunDetail: (runId: string, pt?: string) => {
+    const params = new URLSearchParams();
+    if (pt) params.set('pt', pt);
+    const qs = params.toString();
+    return request<RunDetail>(`/runs/${encodeURIComponent(runId)}${qs ? `?${qs}` : ''}`);
+  },
 
-  search: (query: string) =>
-    request<SearchResult[]>(`/search?query=${encodeURIComponent(query)}`),
+  search: (query: string, pt?: string) => {
+    const params = new URLSearchParams({ query });
+    if (pt) params.set('pt', pt);
+    return request<SearchResult[]>(`/search?${params}`);
+  },
 
   triggerBatch: (params: BatchRequest) =>
     request<BatchAccepted>('/batch', {
@@ -151,28 +171,39 @@ export const api = {
       body: JSON.stringify(toSnakeCase(params)),
     }),
 
-  getFallbacks: (offset = 0, limit = 20) =>
-    request<PaginatedResponse<FallbackRecord>>(
-      `/fallbacks?offset=${offset}&limit=${limit}`
-    ),
+  getFallbacks: (offset = 0, limit = 20, pt?: string) => {
+    const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    if (pt) params.set('pt', pt);
+    return request<PaginatedResponse<FallbackRecord>>(`/fallbacks?${params}`);
+  },
 
-  submitAnnotation: (runId: string, annotation: AnnotationRequest) =>
-    request<AnnotationResponse>(
-      `/runs/${encodeURIComponent(runId)}/annotation`,
-      {
-        method: 'PUT',
-        body: JSON.stringify(toSnakeCase(annotation)),
-      }
-    ),
+  submitAnnotation: (runId: string, annotation: AnnotationRequest, pt?: string) => {
+    const params = new URLSearchParams();
+    if (pt) params.set('pt', pt);
+    const qs = params.toString();
+    return request<AnnotationResponse>(
+      `/runs/${encodeURIComponent(runId)}/annotation${qs ? `?${qs}` : ''}`,
+      { method: 'PUT', body: JSON.stringify(toSnakeCase(annotation)) }
+    );
+  },
 
-  submitReview: (entityKey: string, review: ReviewRequest) =>
-    request<ReviewResponse>(
-      `/fallbacks/${encodeURIComponent(entityKey)}/review`,
-      {
-        method: 'PUT',
-        body: JSON.stringify(toSnakeCase(review)),
-      }
-    ),
+  submitReview: (entityKey: string, review: ReviewRequest, pt?: string) => {
+    const params = new URLSearchParams();
+    if (pt) params.set('pt', pt);
+    const qs = params.toString();
+    return request<ReviewResponse>(
+      `/fallbacks/${encodeURIComponent(entityKey)}/review${qs ? `?${qs}` : ''}`,
+      { method: 'PUT', body: JSON.stringify(toSnakeCase(review)) }
+    );
+  },
+
+  getDates: () => request<DatesResponse>('/dates'),
+
+  getStatsRange: (ptStart: string, ptEnd: string) =>
+    request<StatsResponse>(`/stats?pt_start=${ptStart}&pt_end=${ptEnd}`),
+
+  getDailySummary: (ptStart: string, ptEnd: string) =>
+    request<DailySummaryResponse>(`/daily-summary?pt_start=${ptStart}&pt_end=${ptEnd}`),
 
   getTaxonomy: () => request<TaxonomyResponse>('/taxonomy'),
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import threading
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from hashlib import sha256
@@ -290,6 +291,7 @@ def run_batch(
     fallback_store,
     sqlite_store: SqliteResultStore | None = None,
     runtime_config: RuntimeConfig | None = None,
+    start_idx: int = 1,
 ) -> dict[str, Any]:
     del pt
     config = runtime_config or RuntimeConfig()
@@ -316,7 +318,7 @@ def run_batch(
             processed_count += 1
 
     with ThreadPoolExecutor(max_workers=config.worker_count) as executor:
-        for idx, row in enumerate(rows, start=1):
+        for idx, row in enumerate(rows, start=start_idx):
             while len(future_to_code) >= max_in_flight:
                 drain_one_or_more()
 
@@ -383,8 +385,8 @@ def run_file_batch(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Industry classification pipeline")
-    parser.add_argument("--pt", required=True, help="bizdate partition in yyyymmdd")
-    parser.add_argument("--mode", required=True, choices=["dry-run", "file-batch", "run", "run-single", "fetch", "fetch-run"], help="execution mode")
+    parser.add_argument("--pt", help="bizdate partition in yyyymmdd (default: yesterday)")
+    parser.add_argument("--mode", required=True, choices=["dry-run", "file-batch", "run", "run-single", "fetch", "fetch-run", "schedule"], help="execution mode")
     parser.add_argument("--cases-path", help="optional path to dry-run cases json")
     parser.add_argument("--input-path", help="json/jsonl input path for file-batch / run mode")
     parser.add_argument("--responses-path", help="mock responses keyed by social_credit_code (file-batch only)")
@@ -396,7 +398,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timeout-seconds", type=int, default=30)
     parser.add_argument("--retry-limit", type=int, default=1)
     parser.add_argument("--max-in-flight", type=int, default=8)
+    parser.add_argument("--schedule-mode", choices=["single-day", "multi-day"], help="调度模式")
+    parser.add_argument("--pt-start", help="15天模式起始日期 yyyymmdd")
+    parser.add_argument("--pt-end", help="15天模式结束日期 yyyymmdd")
+    parser.add_argument("--sql-template", help="自定义 SQL 模板文件路径")
     args = parser.parse_args(argv)
+
+    # --pt 默认值：昨天 (T-1)
+    if not args.pt:
+        from datetime import datetime, timedelta
+        args.pt = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+        print(f"--pt 未指定，使用默认值 T-1: {args.pt}")
+
     runtime_config = RuntimeConfig(
         worker_count=args.worker_count,
         provider_rate_limit_per_minute=args.provider_rate_limit_per_minute,
@@ -406,11 +419,15 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if args.mode == "dry-run":
+        if not args.pt:
+            raise ValueError("--pt is required for dry-run mode")
         summary = run_dry_run_batch(pt=args.pt, cases_path=args.cases_path)
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
 
     if args.mode == "file-batch":
+        if not args.pt:
+            raise ValueError("--pt is required for file-batch mode")
         if not args.input_path or not args.responses_path or not args.output_dir:
             raise ValueError("file-batch mode requires --input-path --responses-path --output-dir")
         summary = run_file_batch(
@@ -424,6 +441,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.mode in ("run", "run-single"):
+        if not args.pt:
+            raise ValueError(f"--pt is required for {args.mode} mode")
         from industry_classification.llm.client import HttpLLMClient
 
         if not args.input_path:
@@ -469,6 +488,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.mode == "fetch":
+        if not args.pt:
+            raise ValueError("--pt is required for fetch mode")
         from industry_classification.data_fetcher import fetch_and_convert
 
         json_path = fetch_and_convert(
@@ -481,6 +502,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.mode == "fetch-run":
+        if not args.pt:
+            raise ValueError("--pt is required for fetch-run mode")
         from industry_classification.data_fetcher import fetch_and_convert
         from industry_classification.llm.client import HttpLLMClient
 
@@ -525,6 +548,39 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         llm_client.close()
         return 0
+
+    if args.mode == "schedule":
+        from dataclasses import asdict
+
+        from industry_classification.batch_scheduler import (
+            BatchScheduleConfig,
+            BatchScheduler,
+            ScheduleMode,
+        )
+
+        schedule_config = BatchScheduleConfig(
+            schedule_mode=ScheduleMode(args.schedule_mode),
+            pt=args.pt,
+            pt_start=args.pt_start,
+            pt_end=args.pt_end,
+            sql_template=args.sql_template,
+            output_dir=args.output_dir,
+            max_rows=args.max_rows,
+            worker_count=args.worker_count,
+            provider_rate_limit_per_minute=args.provider_rate_limit_per_minute,
+            timeout_seconds=args.timeout_seconds,
+            retry_limit=args.retry_limit,
+            max_in_flight=args.max_in_flight,
+        )
+        scheduler = BatchScheduler(schedule_config)
+        try:
+            result = scheduler.run()
+            summary = asdict(result)
+            print(json.dumps(summary, ensure_ascii=False, indent=2))
+            return 0
+        except (ValueError, FileNotFoundError) as exc:
+            print(f"错误: {exc}", file=sys.stderr)
+            return 1
 
     raise ValueError(f"unsupported mode: {args.mode}")
 

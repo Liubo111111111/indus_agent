@@ -6,11 +6,15 @@ validation errors for invalid parameters.
 
 from __future__ import annotations
 
+from typing import Any
+from unittest.mock import MagicMock
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from industry_classification.api.auth import FeishuAuthService
+from industry_classification.api.data_source_router import DataSourceRouter
 from industry_classification.api.routes import create_router
 from industry_classification.api.services import (
     FallbackService,
@@ -68,6 +72,23 @@ def _fallback_record(
     }
 
 
+def _build_mock_data_source_router(
+    formal_store: dict, fallback_store: dict
+) -> DataSourceRouter:
+    """Create a mock DataSourceRouter that returns in-memory services."""
+    mock_router = MagicMock(spec=DataSourceRouter)
+    mock_router.get_latest_pt.return_value = "20260412"
+    mock_router.validate_pt.return_value = True
+    mock_router.build_services.return_value = {
+        "stats_service": StatsService(formal_store, fallback_store),
+        "run_service": RunService(formal_store, fallback_store),
+        "search_service": SearchService(formal_store, fallback_store),
+        "fallback_service": FallbackService(formal_store, fallback_store),
+    }
+    mock_router.list_dates.return_value = [{"pt": "20260412", "record_count": 3}]
+    return mock_router
+
+
 @pytest.fixture()
 def formal_store() -> dict[str, dict]:
     r1 = _formal_record("91330100MA28W12345", "run-001")
@@ -85,11 +106,9 @@ def fallback_store() -> dict[str, dict]:
 def client(formal_store, fallback_store) -> TestClient:
     """Create a TestClient with all services wired to in-memory stores."""
     app = FastAPI()
+    mock_dsr = _build_mock_data_source_router(formal_store, fallback_store)
     router = create_router(
-        stats_service=StatsService(formal_store, fallback_store),
-        run_service=RunService(formal_store, fallback_store),
-        search_service=SearchService(formal_store, fallback_store),
-        fallback_service=FallbackService(formal_store, fallback_store),
+        data_source_router=mock_dsr,
         taxonomy_service=TaxonomyService(),
         settings_service=SettingsService(),
         auth_service=_NoOpAuth(),

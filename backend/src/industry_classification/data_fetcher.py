@@ -301,3 +301,35 @@ def fetch_and_convert(
     json_path = csv_to_json(csv_path, format=format)
     logger.info("数据准备完成: %s", json_path)
     return json_path
+
+
+def fetch_by_sql(
+    sql: str,
+    max_rows: int | None = None,
+    max_retries: int = 3,
+    retry_delay: int = 5,
+) -> list[dict[str, Any]]:
+    """执行自定义 SQL 并返回 WideRow 兼容的字典列表。
+
+    复用现有 ODPS 连接和重试机制，将查询结果通过 _csv_row_to_wide_row 转换。
+
+    Args:
+        sql: 已渲染的 SQL 语句（LIMIT 已由调用方处理）
+        max_rows: 保留参数，供调用方记录/未来使用，不会再追加 LIMIT
+        max_retries: 查询失败重试次数
+        retry_delay: 重试间隔秒数
+
+    Returns:
+        转换后的 WideRow 兼容字典列表
+    """
+    odps = _get_odps_client()
+    raw_rows = _execute_with_retry(odps, sql, max_retries, retry_delay)
+
+    results: list[dict[str, Any]] = []
+    for row in raw_rows:
+        # ODPS 返回的值可能不全是字符串，统一转为 str 以兼容 _csv_row_to_wide_row
+        str_row = {k: str(v) if v is not None else "" for k, v in row.items()}
+        results.append(_csv_row_to_wide_row(str_row))
+
+    logger.info("fetch_by_sql 完成: %d 条记录", len(results))
+    return results

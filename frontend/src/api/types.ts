@@ -12,6 +12,29 @@ export interface StatsResponse {
   labelDistribution: Record<string, number>;
 }
 
+// --- 日期分区 ---
+
+export interface DateEntry {
+  pt: string;
+  recordCount: number;
+}
+
+export interface DatesResponse {
+  dates: DateEntry[];
+  latestPt: string | null;
+}
+
+export interface DailySummaryEntry {
+  pt: string;
+  totalCount: number;
+  formalCount: number;
+  fallbackCount: number;
+}
+
+export interface DailySummaryResponse {
+  summaries: DailySummaryEntry[];
+}
+
 // --- 运行记录 ---
 
 export interface RunSummary {

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from industry_classification.api.auth import FeishuAuthService
+from industry_classification.api.data_source_router import DataSourceRouter
 from industry_classification.api.schemas import (
     AdminAuthAuditResponse,
     AdminOverviewResponse,
@@ -29,20 +30,36 @@ from industry_classification.api.schemas import (
     SettingsUpdate,
 )
 from industry_classification.api.services import (
-    FallbackService,
-    RunService,
-    SearchService,
     SettingsService,
-    StatsService,
     TaxonomyService,
 )
 
 
+def _resolve_services(
+    data_source_router: DataSourceRouter, pt: str | None
+) -> dict[str, Any]:
+    """Resolve *pt* to an effective partition and build service instances.
+
+    Raises :class:`HTTPException` on validation / lookup failures.
+    """
+    effective_pt = pt or data_source_router.get_latest_pt()
+    if effective_pt is None:
+        raise HTTPException(status_code=404, detail="No data partitions available")
+    if not data_source_router.validate_pt(effective_pt):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid pt format: {effective_pt}. Expected yyyymmdd or _legacy",
+        )
+    try:
+        return data_source_router.build_services(effective_pt)
+    except ValueError:
+        raise HTTPException(
+            status_code=404, detail=f"Data partition not found: {effective_pt}"
+        )
+
+
 def create_router(
-    stats_service: StatsService,
-    run_service: RunService,
-    search_service: SearchService,
-    fallback_service: FallbackService,
+    data_source_router: DataSourceRouter,
     taxonomy_service: TaxonomyService,
     settings_service: SettingsService,
     auth_service: FeishuAuthService | None = None,
@@ -265,11 +282,54 @@ def create_router(
 
         return result
 
+    # -- dates ------------------------------------------------------------
+
+    @router.get("/dates")
+    def list_dates(_user=Depends(require_auth)):
+        entries = data_source_router.list_dates()
+        latest = data_source_router.get_latest_pt()
+        return {"dates": entries, "latest_pt": latest}
+
+    @router.get("/daily-summary")
+    def get_daily_summary(
+        pt_start: str = Query(...),
+        pt_end: str = Query(...),
+        _user=Depends(require_auth),
+    ):
+        if pt_start > pt_end:
+            raise HTTPException(status_code=400, detail="pt_start must not be later than pt_end")
+        return {"summaries": data_source_router.list_daily_summaries(pt_start, pt_end)}
+
     # -- stats ------------------------------------------------------------
 
     @router.get("/stats")
-    def get_stats(_user=Depends(require_auth)):
-        return stats_service.get_stats()
+    def get_stats(
+        pt: str = Query(None),
+        pt_start: str = Query(None),
+        pt_end: str = Query(None),
+        _user=Depends(require_auth),
+    ):
+        # Range query takes priority
+        if pt_start and pt_end:
+            if not data_source_router.validate_pt(pt_start):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Invalid pt format: {pt_start}. Expected yyyymmdd or _legacy",
+                )
+            if not data_source_router.validate_pt(pt_end):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Invalid pt format: {pt_end}. Expected yyyymmdd or _legacy",
+                )
+            if pt_start > pt_end:
+                raise HTTPException(
+                    status_code=400,
+                    detail="pt_start must not be later than pt_end",
+                )
+            return data_source_router.aggregate_stats(pt_start, pt_end)
+
+        services = _resolve_services(data_source_router, pt)
+        return services["stats_service"].get_stats()
 
     # -- runs -------------------------------------------------------------
 
@@ -277,20 +337,24 @@ def create_router(
     def list_runs(
         offset: int = Query(0, ge=0),
         limit: int = Query(20, ge=1, le=100),
+        pt: str = Query(None),
         _user=Depends(require_auth),
     ):
-        return run_service.list_runs(offset, limit)
+        services = _resolve_services(data_source_router, pt)
+        return services["run_service"].list_runs(offset, limit)
 
     @router.get("/runs/{run_id}")
-    def get_run_detail(run_id: str, _user=Depends(require_auth)):
-        detail = run_service.get_run_detail(run_id)
+    def get_run_detail(run_id: str, pt: str = Query(None), _user=Depends(require_auth)):
+        services = _resolve_services(data_source_router, pt)
+        detail = services["run_service"].get_run_detail(run_id)
         if detail is None:
             raise HTTPException(status_code=404, detail="Run not found")
         return detail
 
     @router.put("/runs/{run_id}/annotation")
-    def annotate_run(run_id: str, req: AnnotationRequest, _user=Depends(require_auth)):
-        result = run_service.annotate(run_id, req.annotated_label, req.reviewer_notes, req.reviewer_name)
+    def annotate_run(run_id: str, req: AnnotationRequest, pt: str = Query(None), _user=Depends(require_auth)):
+        services = _resolve_services(data_source_router, pt)
+        result = services["run_service"].annotate(run_id, req.annotated_label, req.reviewer_notes, req.reviewer_name)
         if result is None:
             raise HTTPException(status_code=404, detail="Run not found")
         return result
@@ -298,14 +362,16 @@ def create_router(
     # -- search -----------------------------------------------------------
 
     @router.get("/search")
-    def search(query: str = Query(..., min_length=1), _user=Depends(require_auth)):
-        return search_service.search(query)
+    def search(query: str = Query(..., min_length=1), pt: str = Query(None), _user=Depends(require_auth)):
+        services = _resolve_services(data_source_router, pt)
+        return services["search_service"].search(query)
 
     # -- annotations archive ----------------------------------------------
 
     @router.get("/annotations")
-    def list_annotations(_user=Depends(require_auth)):
-        return run_service.list_annotated_runs()
+    def list_annotations(pt: str = Query(None), _user=Depends(require_auth)):
+        services = _resolve_services(data_source_router, pt)
+        return services["run_service"].list_annotated_runs()
 
     # -- batch ------------------------------------------------------------
 
@@ -322,13 +388,16 @@ def create_router(
     def list_fallbacks(
         offset: int = Query(0, ge=0),
         limit: int = Query(20, ge=1, le=100),
+        pt: str = Query(None),
         _user=Depends(require_auth),
     ):
-        return fallback_service.list_fallbacks(offset, limit)
+        services = _resolve_services(data_source_router, pt)
+        return services["fallback_service"].list_fallbacks(offset, limit)
 
     @router.put("/fallbacks/{entity_key}/review")
-    def review_fallback(entity_key: str, req: ReviewRequest, _user=Depends(require_auth)):
-        result = fallback_service.review(
+    def review_fallback(entity_key: str, req: ReviewRequest, pt: str = Query(None), _user=Depends(require_auth)):
+        services = _resolve_services(data_source_router, pt)
+        result = services["fallback_service"].review(
             entity_key, req.approved_label, req.reviewer_notes
         )
         if result is None:

@@ -207,12 +207,13 @@ class _SqliteResultReader:
             decision = self._load_json(row["decision_record_json"], {})
             ann_list = annotations_by_entity.get(row["entity_key"], [])
             latest_annotated = ann_list[-1]["annotated_label"] if ann_list else None
+            display_label = latest_annotated if latest_annotated else decision.get("final_label")
             result.append(
                 {
                     "run_id": row["run_id"],
                     "entity_key": row["entity_key"],
                     "enterprise_name": wide.get("enterprise_name", row["entity_key"]),
-                    "final_label": decision.get("final_label"),
+                    "final_label": display_label,
                     "annotated_label": latest_annotated,
                     "confidence_level": decision.get("confidence_level"),
                     "route": row["route"],
@@ -653,11 +654,9 @@ class RunService:
         if annotations:
             latest = annotations[-1]
             annotated_label = latest.get("annotated_label")
-            # 对于 fallback 转 formal 的记录，final_label 可能已被覆盖为人工标签
-            # 尝试从 model_decision_record 恢复模型原始标签
-            model_dr = record.get("model_decision_record")
-            if isinstance(model_dr, dict) and model_dr.get("final_label"):
-                final_label = model_dr["final_label"]
+            if annotated_label:
+                # 人工标注覆盖显示标签
+                final_label = annotated_label
 
         return RunSummary(
             run_id=audit.get("run_id", ""),

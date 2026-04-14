@@ -3,6 +3,30 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+# --- 日期分区 ---
+
+
+class DateEntry(BaseModel):
+    pt: str
+    record_count: int
+
+
+class DatesResponse(BaseModel):
+    dates: list[DateEntry]
+    latest_pt: str | None
+
+
+class DailySummaryEntry(BaseModel):
+    pt: str
+    total_count: int
+    formal_count: int
+    fallback_count: int
+
+
+class DailySummaryResponse(BaseModel):
+    summaries: list[DailySummaryEntry]
+
+
 # --- 统计 ---
 
 
