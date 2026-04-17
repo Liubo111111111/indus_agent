@@ -338,10 +338,14 @@ def create_router(
         offset: int = Query(0, ge=0),
         limit: int = Query(20, ge=1, le=100),
         pt: str = Query(None),
+        label: str = Query(None),
+        annotation_status: str = Query(None),
         _user=Depends(require_auth),
     ):
         services = _resolve_services(data_source_router, pt)
-        return services["run_service"].list_runs(offset, limit)
+        return services["run_service"].list_runs(
+            offset, limit, label=label, annotation_status=annotation_status
+        )
 
     @router.get("/runs/{run_id}")
     def get_run_detail(run_id: str, pt: str = Query(None), _user=Depends(require_auth)):

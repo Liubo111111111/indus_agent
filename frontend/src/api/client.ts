@@ -146,9 +146,11 @@ export const api = {
     return request<Record<string, unknown>[]>(`/annotations${qs ? `?${qs}` : ''}`);
   },
 
-  getRuns: (offset = 0, limit = 20, pt?: string) => {
+  getRuns: (offset = 0, limit = 20, pt?: string, label?: string, annotationStatus?: string) => {
     const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
     if (pt) params.set('pt', pt);
+    if (label) params.set('label', label);
+    if (annotationStatus) params.set('annotation_status', annotationStatus);
     return request<PaginatedResponse<RunSummary>>(`/runs?${params}`);
   },
 

@@ -45,6 +45,26 @@ from industry_classification.settings import (
 
 _ENV_PATH = Path(__file__).resolve().parents[3] / ".env"
 
+# Label ID ↔ display-name mappings (kept in sync with taxonomy_config.yaml)
+_LABEL_ID_TO_NAME: dict[str, str] = {
+    "ride_hailing": "网约车",
+    "freight_logistics": "货运物流",
+    "entertainment_services": "娱乐服务",
+    "cultural_media": "文化传媒",
+    "domestic_services": "家政服务",
+    "property_management": "物业管理",
+    "order_taking_platform": "接单类平台",
+    "gig_platform": "接单类平台",
+    "security_services": "安保服务",
+    "construction": "建筑类",
+    "delivery_riders": "骑手配送",
+    "rider_delivery": "骑手配送",
+    "catering_services": "餐饮服务",
+    "food_services": "餐饮服务",
+    "other": "其他",
+}
+_LABEL_NAME_TO_ID: dict[str, str] = {v: k for k, v in _LABEL_ID_TO_NAME.items()}
+
 
 def _extract_entity_key(publish_key: str) -> str:
     """Return the first segment of a ``publish_key`` (the entity_key)."""
@@ -197,18 +217,26 @@ class _SqliteResultReader:
         fallback = sum(1 for row in runs if row["route"] == "fallback")
         return formal, fallback
 
-    def list_runs(self, offset: int, limit: int) -> list[dict[str, Any]]:
+    def list_runs(
+        self,
+        offset: int,
+        limit: int,
+        label: str | None = None,
+        annotation_status: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Return (page_items, filtered_total)."""
         rows = self._list_run_rows()
-        page = rows[offset : offset + limit]
         annotations_by_entity = self._annotation_map_by_entity()
-        result: list[dict[str, Any]] = []
-        for row in page:
+
+        # Build full list with resolved labels so we can filter
+        all_items: list[dict[str, Any]] = []
+        for row in rows:
             wide = self._load_json(row["wide_row_json"], {})
             decision = self._load_json(row["decision_record_json"], {})
             ann_list = annotations_by_entity.get(row["entity_key"], [])
             latest_annotated = ann_list[-1]["annotated_label"] if ann_list else None
             display_label = latest_annotated if latest_annotated else decision.get("final_label")
-            result.append(
+            all_items.append(
                 {
                     "run_id": row["run_id"],
                     "entity_key": row["entity_key"],
@@ -222,7 +250,24 @@ class _SqliteResultReader:
                     "annotations": ann_list,
                 }
             )
-        return result
+
+        # Apply filters
+        filtered = all_items
+        if label:
+            filtered = [
+                r for r in filtered
+                if r.get("final_label") == label
+                or r.get("final_label") == _LABEL_ID_TO_NAME.get(label)
+                or _LABEL_NAME_TO_ID.get(r.get("final_label", "")) == label
+            ]
+        if annotation_status == "annotated":
+            filtered = [r for r in filtered if r.get("annotations")]
+        elif annotation_status == "unannotated":
+            filtered = [r for r in filtered if not r.get("annotations")]
+
+        total = len(filtered)
+        page = filtered[offset : offset + limit]
+        return page, total
 
     def get_run_detail(self, run_id: str) -> dict[str, Any] | None:
         if not self.enabled:
@@ -681,12 +726,33 @@ class RunService:
 
     # -- public API -------------------------------------------------------
 
-    def list_runs(self, offset: int = 0, limit: int = 20) -> PaginatedRunList:
+    def list_runs(
+        self,
+        offset: int = 0,
+        limit: int = 20,
+        label: str | None = None,
+        annotation_status: str | None = None,
+    ) -> PaginatedRunList:
         if self._sqlite.enabled:
-            items = [RunSummary(**item) for item in self._sqlite.list_runs(offset, limit)]
-            total = sum(self._sqlite.count_by_route())
+            page, total = self._sqlite.list_runs(
+                offset, limit, label=label, annotation_status=annotation_status
+            )
+            items = [RunSummary(**item) for item in page]
             return PaginatedRunList(items=items, total=total, offset=offset, limit=limit)
         all_items = self._all_summaries()
+        # Apply filters
+        if label:
+            resolved = _LABEL_ID_TO_NAME.get(label, label)
+            all_items = [
+                r for r in all_items
+                if r.final_label == label
+                or r.final_label == resolved
+                or _LABEL_NAME_TO_ID.get(r.final_label or "", "") == label
+            ]
+        if annotation_status == "annotated":
+            all_items = [r for r in all_items if r.annotations]
+        elif annotation_status == "unannotated":
+            all_items = [r for r in all_items if not r.annotations]
         total = len(all_items)
         page = all_items[offset : offset + limit]
         return PaginatedRunList(items=page, total=total, offset=offset, limit=limit)

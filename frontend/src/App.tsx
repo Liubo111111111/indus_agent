@@ -114,6 +114,11 @@ const TAXONOMY_ID_TO_NAME: Record<string, string> = {
   other: '其他',
 };
 
+// Reverse mapping: display name → label ID
+const TAXONOMY_NAME_TO_ID: Record<string, string> = Object.fromEntries(
+  Object.entries(TAXONOMY_ID_TO_NAME).map(([id, name]) => [name, id])
+);
+
 function resolveLabelName(raw: string, taxonomyLabels?: TaxonomyLabel[]): string {
   if (!raw) return raw;
   // 先查静态映射
@@ -1097,7 +1102,8 @@ export default function App() {
 
   const fetchRuns = useCallback((offset = 0, append = false) => {
     if (!append) { setRunsLoading(true); setRunsError(null); } else { setRunsLoadingMore(true); }
-    api.getRuns(offset, RUNS_LIMIT, selectedPt ?? undefined)
+    const annotationStatus = runsFilter === 'all' ? undefined : runsFilter === 'annotated' ? 'annotated' : 'unannotated';
+    api.getRuns(offset, RUNS_LIMIT, selectedPt ?? undefined, labelFilter ?? undefined, annotationStatus)
       .then((data: PaginatedResponse<RunSummary>) => {
         if (append) { setRuns(prev => [...prev, ...data.items]); }
         else { setRuns(data.items); }
@@ -1106,7 +1112,7 @@ export default function App() {
       })
       .catch(e => setRunsError(e.message))
       .finally(() => { setRunsLoading(false); setRunsLoadingMore(false); });
-  }, [selectedPt]);
+  }, [selectedPt, runsFilter, labelFilter]);
 
   const fetchTaxonomy = useCallback(() => {
     setTaxonomyLoading(true); setTaxonomyError(null);
@@ -1244,19 +1250,8 @@ export default function App() {
 
   const handleLoadMore = () => { fetchRuns(runsOffset, true); };
 
-  // Filtered runs for 分类审核台
-  const filteredRuns = (() => {
-    let result = runsFilter === 'all' ? runs
-      : runsFilter === 'annotated' ? runs.filter(r => (r.annotations || []).length > 0)
-      : runs.filter(r => (r.annotations || []).length === 0);
-    if (labelFilter) {
-      result = result.filter(r => {
-        const raw = r.finalLabel || '';
-        return raw === labelFilter || resolveLabelName(raw) === labelFilter;
-      });
-    }
-    return result;
-  })();
+  // Runs are now filtered server-side, no client-side filtering needed
+  const filteredRuns = runs;
 
   // Settings validation + save
   const validateSettings = (): boolean => {
@@ -2121,7 +2116,7 @@ export default function App() {
                           {tab.label}
                         </button>
                       ))}
-                      <span className="ml-auto text-xs text-slate-400">共 {filteredRuns.length} 条 / 总 {runsTotal} 条</span>
+                      <span className="ml-auto text-xs text-slate-400">共 {runsTotal} 条</span>
                     </div>
 
                     {/* Label Filter Chips */}
