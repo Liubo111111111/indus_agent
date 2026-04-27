@@ -87,8 +87,103 @@ class SqliteResultStore:
 
                 create index if not exists idx_annotations_run_id
                 on annotations (run_id);
+
+                create table if not exists backtest_runs (
+                    backtest_run_id text primary key,
+                    prompt_version_static text,
+                    prompt_version_dynamic text,
+                    prompt_version_final text,
+                    pt_dates_json text,
+                    dataset_size integer,
+                    completed_count integer,
+                    error_count integer,
+                    accuracy real,
+                    status text,
+                    current_entity text,
+                    created_at text not null default current_timestamp,
+                    updated_at text not null default current_timestamp
+                );
+
+                create table if not exists backtest_results (
+                    backtest_run_id text not null,
+                    entity_key text not null,
+                    enterprise_name text,
+                    annotated_label text,
+                    original_label text,
+                    predicted_label text,
+                    confidence_level text,
+                    decision_reason text,
+                    decision_record_json text,
+                    error_type text,
+                    created_at text not null default current_timestamp,
+                    primary key (backtest_run_id, entity_key)
+                );
+
+                create index if not exists idx_backtest_results_run_id
+                on backtest_results (backtest_run_id);
+
+                create index if not exists idx_backtest_runs_status
+                on backtest_runs (status);
+
+                create table if not exists comparison_sessions (
+                    session_id text primary key,
+                    bizdate text,
+                    prompt_version_static text,
+                    prompt_version_dynamic text,
+                    prompt_version_final text,
+                    dataset_size integer,
+                    completed_count integer,
+                    error_count integer,
+                    diff_count integer,
+                    annotation_count integer,
+                    consistency_rate real,
+                    status text,
+                    current_entity text,
+                    created_at text not null default current_timestamp,
+                    updated_at text not null default current_timestamp
+                );
+
+                create table if not exists comparison_results (
+                    session_id text not null,
+                    entity_key text not null,
+                    enterprise_name text,
+                    old_label text,
+                    new_label text,
+                    confidence_level text,
+                    decision_reason text,
+                    decision_record_json text,
+                    error_type text,
+                    wide_row_json text,
+                    static_profile_json text,
+                    dynamic_profile_json text,
+                    created_at text not null default current_timestamp,
+                    primary key (session_id, entity_key)
+                );
+
+                create table if not exists comparison_annotations (
+                    annotation_id integer primary key autoincrement,
+                    session_id text not null,
+                    entity_key text not null,
+                    human_label text,
+                    reviewer_name text not null default '',
+                    created_at text not null default current_timestamp
+                );
+
+                create index if not exists idx_comparison_results_session_id
+                on comparison_results (session_id);
+
+                create index if not exists idx_comparison_annotations_session_id
+                on comparison_annotations (session_id);
                 """
             )
+            # 兼容已有数据库：尝试添加新列（已存在则忽略）
+            for col in ("enterprise_name", "original_label", "wide_row_json", "static_profile_json", "dynamic_profile_json"):
+                try:
+                    self._conn.execute(
+                        f"ALTER TABLE backtest_results ADD COLUMN {col} text"
+                    )
+                except sqlite3.OperationalError:
+                    pass  # 列已存在
             self._conn.commit()
 
     @staticmethod

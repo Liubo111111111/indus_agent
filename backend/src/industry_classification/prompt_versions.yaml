@@ -1,0 +1,24 @@
+# Prompt 版本配置
+# 每个节点声明可用版本列表和默认版本
+# 新增版本时只需在此文件添加，前端自动读取
+
+nodes:
+  static_profile:
+    display_name: 静态画像
+    default: v1
+    versions:
+      - v1
+
+  dynamic_profile:
+    display_name: 动态画像
+    default: v1
+    versions:
+      - v1
+
+  final_decision:
+    display_name: 最终裁决
+    default: v2
+    versions:
+      - v1
+      - v2
+      - v3

@@ -143,3 +143,32 @@ def load_prompt_asset(node_name: str, version: str) -> PromptAsset:
     with _prompt_asset_path(node_name, version).open("r", encoding="utf-8") as fh:
         payload = yaml.safe_load(fh)
     return PromptAsset.model_validate(payload)
+
+
+# ---------------------------------------------------------------------------
+# Prompt 版本默认值（从 prompt_versions.yaml 读取）
+# ---------------------------------------------------------------------------
+
+@lru_cache(maxsize=1)
+def load_prompt_version_defaults() -> dict[str, str]:
+    """从 prompt_versions.yaml 读取各节点的默认 Prompt 版本。
+
+    返回 {"static_profile": "v1", "dynamic_profile": "v1", "final_decision": "v2"} 格式。
+    """
+    config_path = Path(__file__).with_name("prompt_versions.yaml")
+    defaults = {
+        "static_profile": "v1",
+        "dynamic_profile": "v1",
+        "final_decision": "v2",
+    }
+    if not config_path.exists():
+        return defaults
+    try:
+        with config_path.open("r", encoding="utf-8") as fh:
+            cfg = yaml.safe_load(fh) or {}
+        for node_name, node_cfg in (cfg.get("nodes") or {}).items():
+            if isinstance(node_cfg, dict) and "default" in node_cfg:
+                defaults[node_name] = node_cfg["default"]
+    except Exception:
+        pass
+    return defaults

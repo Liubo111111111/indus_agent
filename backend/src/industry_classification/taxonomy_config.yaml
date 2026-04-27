@@ -23,12 +23,12 @@ labels:
   - id: domestic_services
     display_name: 家政服务
     short_description: 保姆、月嫂、育儿嫂、钟点工、保洁（含家庭及商业场景）、收纳相关企业
-    prompt_text: 保姆、月嫂、育儿嫂、钟点工、保洁、收纳相关企业。当企业招聘岗位以保洁类（家政保洁、清洁工、保洁员等）为核心时，无论服务场景是家庭、写字楼、机场还是商业综合体，均应优先归入家政服务。仅当企业同时自主运营物业项目（如小区物业、园区物业）且保洁只是物业管理的附属职能时，才归入物业管理。
+    prompt_text: 保姆、月嫂、育儿嫂、钟点工、保洁、收纳相关企业。
     enabled: true
   - id: property_management
     display_name: 物业管理
     short_description: 小区、写字楼、园区、商业综合体物业运营及配套秩序维修企业
-    prompt_text: 小区、写字楼、园区、商业综合体物业运营，以及与之配套的秩序维护、设施维修相关企业。核心特征是企业自主承接并运营物业管理项目，物业服务类维护等多元物业职能。如果企业招聘岗位高度集中于保洁类岗位，即使服务于商业场景（机场、写字楼等），也应优先归入"家政服务"而非本类。
+    prompt_text: 小区、写字楼、园区、商业综合体物业运营，以及与之配套的秩序维护、设施维修相关企业。
     enabled: true
   - id: order_taking_platform
     display_name: 接单类平台
@@ -37,8 +37,8 @@ labels:
     enabled: true
   - id: security_services
     display_name: 安保服务
-    short_description: 保安、护卫、押运、安全保障相关企业
-    prompt_text: 保安、护卫、押运、安全保障相关企业。
+    short_description: 保安、护卫、押运、安全保障等蓝领安保劳务供给相关企业
+    prompt_text: 保安、护卫、押运、安全保障等蓝领安保劳务供给相关企业。安防产品研发/销售、安防工程技术类企业不属于此类。
     enabled: true
   - id: construction
     display_name: 建筑类
