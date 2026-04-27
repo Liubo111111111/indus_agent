@@ -98,6 +98,9 @@ def run_once(
     feature_schema_version: str = "v1",
     taxonomy_version: str = "v1",
     graph_version: str = "v1",
+    prompt_version_static: str = "v1",
+    prompt_version_dynamic: str = "v1",
+    prompt_version_final: str = "v3",
 ) -> GraphState:
     resolved_sqlite_store = sqlite_store
     owns_sqlite_store = False
@@ -112,6 +115,9 @@ def run_once(
             feature_schema_version=feature_schema_version,
             taxonomy_version=taxonomy_version,
             graph_version=graph_version,
+            prompt_version_static=prompt_version_static,
+            prompt_version_dynamic=prompt_version_dynamic,
+            prompt_version_final=prompt_version_final,
         )
 
         static_service = StaticProfileService(

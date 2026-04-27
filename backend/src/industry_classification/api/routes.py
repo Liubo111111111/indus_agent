@@ -7,6 +7,7 @@ when the router is mounted in ``server.py``.
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from typing import Any, Callable
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
@@ -430,10 +431,22 @@ def create_router(
 
     @router.get("/prompts")
     def get_prompts(_user=Depends(require_admin)):
-        """返回所有 prompt 模板内容。"""
+        """返回所有 prompt 模板内容，从 prompt_versions.yaml 读取配置。"""
+        import yaml as _yaml
         from industry_classification.settings import load_prompt_asset
+
+        # 从配置文件读取各节点的默认版本
+        config_path = Path(__file__).resolve().parents[1] / "prompt_versions.yaml"
+        node_defaults: dict[str, str] = {}
+        if config_path.exists():
+            with config_path.open("r", encoding="utf-8") as f:
+                cfg = _yaml.safe_load(f) or {}
+            for node_name, node_cfg in (cfg.get("nodes") or {}).items():
+                node_defaults[node_name] = node_cfg.get("default", "v1")
+
         prompts = {}
-        for node, version in [("static_profile", "v1"), ("dynamic_profile", "v1"), ("final_decision", "v1")]:
+        for node in ("static_profile", "dynamic_profile", "final_decision"):
+            version = node_defaults.get(node, "v1")
             try:
                 asset = load_prompt_asset(node, version)
                 prompts[node] = {"version": asset.version, "system_prompt": asset.system_prompt, "user_template": asset.user_template}

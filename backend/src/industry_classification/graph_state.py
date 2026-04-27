@@ -3,6 +3,9 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict
 
 from industry_classification.schemas import DecisionRecord, DynamicProfile, StaticProfile, WideRow
+from industry_classification.settings import load_prompt_version_defaults
+
+_PV = load_prompt_version_defaults()
 
 
 class GraphState(BaseModel):
@@ -34,9 +37,9 @@ def build_initial_state(
     feature_schema_version: str,
     taxonomy_version: str,
     graph_version: str,
-    prompt_version_static: str = "v1",
-    prompt_version_dynamic: str = "v1",
-    prompt_version_final: str = "v2",
+    prompt_version_static: str = _PV.get("static_profile", "v1"),
+    prompt_version_dynamic: str = _PV.get("dynamic_profile", "v1"),
+    prompt_version_final: str = _PV.get("final_decision", "v2"),
     model_version_static: str = "unset",
     model_version_dynamic: str = "unset",
     model_version_final: str = "unset",

@@ -19,6 +19,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from industry_classification.api.auth import AuthAuditStore, FeishuAuthService, load_feishu_auth_settings
+from industry_classification.api.backtest_routes import create_backtest_router
+from industry_classification.api.comparison_routes import create_comparison_router
 from industry_classification.api.data_source_router import DataSourceRouter
 from industry_classification.api.routes import create_router
 from industry_classification.api.services import (
@@ -464,6 +466,14 @@ def create_app(output_dir: Path | None = None) -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(router, prefix="/api")
+
+    # -- backtest router --------------------------------------------------
+    backtest_router = create_backtest_router(sqlite_path)
+    app.include_router(backtest_router, prefix="/api/backtest")
+
+    # -- comparison router ------------------------------------------------
+    comparison_router = create_comparison_router(sqlite_path)
+    app.include_router(comparison_router, prefix="/api/comparison")
 
     return app
 
