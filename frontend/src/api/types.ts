@@ -265,3 +265,128 @@ export interface ClassifyAccepted {
   status: string;
   totalRows?: number;
 }
+
+// --- 回溯测试 ---
+
+export interface BacktestRunRequest {
+  ptDates: string[];
+  promptVersionStatic?: string;
+  promptVersionDynamic?: string;
+  promptVersionFinal?: string;
+}
+
+export interface BacktestRunAccepted {
+  backtestRunId: string;
+  message: string;
+  datasetSize: number;
+}
+
+export interface BacktestStatus {
+  backtestRunId: string;
+  status: string;
+  datasetSize: number;
+  completedCount: number;
+  errorCount: number;
+  currentEntity: string | null;
+  accuracy: number | null;
+}
+
+export interface LabelMetrics {
+  label: string;
+  precision: number;
+  recall: number;
+  f1: number;
+  support: number;
+}
+
+export interface MisclassifiedItem {
+  entityKey: string;
+  enterpriseName: string;
+  annotatedLabel: string;
+  predictedLabel: string;
+  confidenceLevel: string | null;
+}
+
+export interface AccuracyReport {
+  backtestRunId: string;
+  accuracy: number;
+  originalAccuracy: number | null;
+  total: number;
+  correct: number;
+  errorCount: number;
+  labelMetrics: LabelMetrics[];
+  confusionMatrix: Record<string, Record<string, number>>;
+  misclassified: MisclassifiedItem[];
+  details: BacktestResultDetail[];
+}
+
+export interface BacktestResultDetail {
+  entityKey: string;
+  enterpriseName: string;
+  originalLabel: string | null;
+  annotatedLabel: string;
+  predictedLabel: string | null;
+  confidenceLevel: string | null;
+  errorType: string | null;
+  match: boolean;
+}
+
+export interface BacktestRunSummary {
+  backtestRunId: string;
+  promptVersionStatic: string;
+  promptVersionDynamic: string;
+  promptVersionFinal: string;
+  ptDates: string[];
+  datasetSize: number;
+  accuracy: number | null;
+  status: string;
+  createdAt: string;
+}
+
+export interface FlipItem {
+  entityKey: string;
+  enterpriseName: string;
+  annotatedLabel: string;
+  labelA: string;
+  labelB: string;
+  direction: string;
+}
+
+export interface ComparisonResult {
+  runA: BacktestRunSummary;
+  runB: BacktestRunSummary;
+  accuracyDiff: number;
+  labelMetricsDiff: Record<string, unknown>[];
+  flips: FlipItem[];
+  confusionMatrixA: Record<string, Record<string, number>>;
+  confusionMatrixB: Record<string, Record<string, number>>;
+}
+
+export interface AvailableDate {
+  date: string;
+  count: number;
+}
+
+export interface AnnotationDatasetSummary {
+  total: number;
+  labelDistribution: Record<string, number>;
+  entities: Record<string, unknown>[];
+}
+
+export interface BaselineReportDetail {
+  entityKey: string;
+  enterpriseName: string;
+  annotatedLabel: string;
+  originalLabel: string | null;
+  match: boolean;
+}
+
+export interface BaselineReport {
+  total: number;
+  accuracy: number;
+  correct: number;
+  errorCount: number;
+  labelMetrics: LabelMetrics[];
+  confusionMatrix: Record<string, Record<string, number>>;
+  details: BaselineReportDetail[];
+}

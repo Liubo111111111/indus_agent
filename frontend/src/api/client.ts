@@ -20,6 +20,15 @@ import type {
   SettingsUpdate,
   DatesResponse,
   DailySummaryResponse,
+  AvailableDate,
+  AnnotationDatasetSummary,
+  BacktestRunRequest,
+  BacktestRunAccepted,
+  BacktestStatus,
+  AccuracyReport,
+  BacktestRunSummary,
+  ComparisonResult,
+  BaselineReport,
 } from './types';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -237,6 +246,51 @@ export const api = {
     request<{ taskId: string; status: string; stages: Array<{ name: string; status: string; elapsedMs: number | null; message: string }>; resultRunId: string | null; error: string | null }>(
       `/classify/status/${encodeURIComponent(taskId)}`
     ),
+
+  // --- 回溯测试 ---
+  getBacktestPromptVersions: () =>
+    request<Record<string, string[]>>('/backtest/prompt-versions'),
+
+  getBacktestAvailableDates: () =>
+    request<AvailableDate[]>('/backtest/available-dates'),
+
+  getPromptVersions: () =>
+    request<{ nodes: Record<string, { displayName: string; default: string; versions: string[] }> }>('/backtest/prompt-versions'),
+
+  getBacktestAnnotationSummary: (ptDates: string[]) =>
+    request<AnnotationDatasetSummary>(`/backtest/annotations?pt_dates=${ptDates.join(',')}`),
+
+  getBaselineReport: (ptDates: string[]) =>
+    request<BaselineReport>(`/backtest/baseline-report?pt_dates=${ptDates.join(',')}`),
+
+  startBacktestRun: (params: BacktestRunRequest) =>
+    request<BacktestRunAccepted>('/backtest/run', {
+      method: 'POST',
+      body: JSON.stringify(toSnakeCase(params)),
+    }),
+
+  getBacktestStatus: (backtestRunId: string) =>
+    request<BacktestStatus>(`/backtest/run/${encodeURIComponent(backtestRunId)}/status`),
+
+  getBacktestReport: (backtestRunId: string) =>
+    request<AccuracyReport>(`/backtest/run/${encodeURIComponent(backtestRunId)}/report`),
+
+  getBacktestRuns: () =>
+    request<BacktestRunSummary[]>('/backtest/runs'),
+
+  compareBacktestRuns: (runA: string, runB: string) =>
+    request<ComparisonResult>(`/backtest/compare?run_a=${encodeURIComponent(runA)}&run_b=${encodeURIComponent(runB)}`),
+
+  deleteBacktestRun: (backtestRunId: string) =>
+    request<{ message: string }>(`/backtest/run/${encodeURIComponent(backtestRunId)}`, {
+      method: 'DELETE',
+    }),
+
+  getBacktestResultDetail: (backtestRunId: string, entityKey: string) =>
+    request<Record<string, unknown>>(`/backtest/run/${encodeURIComponent(backtestRunId)}/result/${encodeURIComponent(entityKey)}`),
+
+  getOriginalRunDetail: (runId: string) =>
+    request<Record<string, unknown>>(`/backtest/original-detail/${encodeURIComponent(runId)}`),
 
   classifyUploadCsv: async (file: File, pt?: string): Promise<{ taskId: string; message: string; totalRows: number; status: string }> => {
     const controller = new AbortController();
